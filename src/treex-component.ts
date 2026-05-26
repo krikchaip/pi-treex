@@ -691,10 +691,10 @@ class ExpandedDetailPane {
 	renderEmpty(theme, width) {
 		return [
 			fitLine(theme.fg("muted", "NO SELECTION"), width),
-			fitLine(theme.fg("border", "─".repeat(width)), width),
+			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...Array.from({ length: this.bodyHeight }, () => fitLine("", width)),
 			fitLine(theme.fg("muted", EXPANDED_DETAIL_COLLAPSE_HINT), width),
-			fitLine(theme.fg("border", "─".repeat(width)), width),
+			fitLine(theme.fg("accent", "─".repeat(width)), width),
 		];
 	}
 
@@ -722,10 +722,10 @@ class ExpandedDetailPane {
 
 		return [
 			fitLine(theme.bold(title), width),
-			fitLine(theme.fg("border", "─".repeat(width)), width),
+			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...visibleLines.map((line) => fitLine(line, width)),
 			fitLine(theme.fg("muted", footerParts.join(METADATA_SEPARATOR)), width),
-			fitLine(theme.fg("border", "─".repeat(width)), width),
+			fitLine(theme.fg("accent", "─".repeat(width)), width),
 		];
 	}
 }
@@ -982,7 +982,7 @@ class TreeXWrapper {
 			return [
 				fitLine(theme.fg("muted", "NO SELECTION"), width),
 				...Array.from({ length: DETAIL_BODY_LINES }, () => fitLine("", width)),
-				fitLine(theme.fg("border", "─".repeat(width)), width),
+				fitLine(theme.fg("accent", "─".repeat(width)), width),
 			];
 		}
 
@@ -993,7 +993,7 @@ class TreeXWrapper {
 		return [
 			fitLine(this.getDetailMetadata(theme, selected, info), width),
 			...bodyLines.map((line) => fitLine(line, width)),
-			fitLine(theme.fg("border", "─".repeat(width)), width),
+			fitLine(theme.fg("accent", "─".repeat(width)), width),
 		];
 	}
 
