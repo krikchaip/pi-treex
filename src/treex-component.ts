@@ -888,6 +888,14 @@ class TreeXWrapper {
 		this.detailContent = new DetailContentRenderer(mode, this.treeList, nativeComponents);
 		this.expandedDetail = new ExpandedDetailPane();
 		patchTreeListRender(this.treeList);
+
+		// Patch native tree border colors to match theme accent
+		const theme = getTheme();
+		for (const child of this.selector.children || []) {
+			if (child && child.constructor && child.constructor.name === "DynamicBorder") {
+				child.color = (str) => theme.fg("accent", str);
+			}
+		}
 	}
 
 	renderSelector(width) {
