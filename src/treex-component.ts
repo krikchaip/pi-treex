@@ -638,6 +638,7 @@ class ExpandedDetailPane {
 		this.tui = tui;
 		this.expanded = false;
 		this.scrollOffset = 0;
+		this.lastBodyHeight = 1;
 	}
 
 	toggle() {
@@ -668,11 +669,11 @@ class ExpandedDetailPane {
 			return;
 		}
 		if (matchesKey(keyData, Key.pageUp) || matchesKey(keyData, Key.left)) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - getExpandedDetailBodyLines(this.tui));
+			this.scrollOffset = Math.max(0, this.scrollOffset - this.lastBodyHeight);
 			return;
 		}
 		if (matchesKey(keyData, Key.pageDown) || matchesKey(keyData, Key.right)) {
-			this.scrollOffset += getExpandedDetailBodyLines(this.tui);
+			this.scrollOffset += this.lastBodyHeight;
 			return;
 		}
 		if (matchesKey(keyData, Key.home)) {
@@ -686,6 +687,7 @@ class ExpandedDetailPane {
 
 	renderEmpty(theme, width) {
 		const bodyHeight = getExpandedDetailBodyLines(this.tui);
+		this.lastBodyHeight = bodyHeight;
 
 		return [
 			fitLine(theme.fg("muted", "NO SELECTION"), width),
@@ -698,6 +700,7 @@ class ExpandedDetailPane {
 
 	render(theme, width, title, contentLines) {
 		const bodyHeight = getExpandedDetailBodyLines(this.tui);
+		this.lastBodyHeight = bodyHeight;
 		const lines = contentLines.length ? contentLines : [theme.fg("muted", "(no text)")];
 		const maxOffset = Math.max(0, lines.length - bodyHeight);
 		this.scrollOffset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
