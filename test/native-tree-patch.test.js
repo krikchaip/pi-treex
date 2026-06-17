@@ -15,7 +15,7 @@ import {
 	UserMessageComponent,
 } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/index.js";
 import { TreeSelectorComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tree-selector.js";
-import { installTreeXNativePatches } from "../src/treex-component.ts";
+import { installTreeXNativePatches, resolveStickyStatusLineIndex } from "../src/treex-component.ts";
 import treexExtension from "../treex.ts";
 
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
@@ -332,6 +332,20 @@ test("native tree patch wraps the real tree selector and renders without crashin
 	assert.ok(lines.some((line) => line.includes("CURRENT")));
 	assert.match(detailHeader ?? "", /\d+\/\d+ · DEPTH \d+ · CURRENT\s+│\s+USER/);
 	assert.ok(findLine(lines, "selected branch message")?.startsWith("◆ "));
+});
+
+test("sticky badge slot follows the search line so wrapped help keeps the border", () => {
+	// 1-line help (legacy layout): spacer/border/title/help/search/border/spacer
+	const oneLineHelp = ["", "─", "Session Tree", "move", "Type to search:", "─", "", "row"];
+	assert.equal(resolveStickyStatusLineIndex(oneLineHelp), 6);
+
+	// 2-line help shifts everything down; slot must follow search line, not stay at 6
+	const twoLineHelp = ["", "─", "Session Tree", "move", "filters", "Type to search:", "─", "", "row"];
+	assert.equal(resolveStickyStatusLineIndex(twoLineHelp), 7);
+	assert.ok(twoLineHelp[7] === "", "slot lands on the spacer, not the border");
+
+	// missing search line falls back to the legacy constant
+	assert.equal(resolveStickyStatusLineIndex(["a", "b", "c"]), 6);
 });
 
 test("tree status is folded into the detail header", () => {

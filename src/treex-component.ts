@@ -633,6 +633,18 @@ function removeNativeTreeStatusLine(lines) {
 	return result;
 }
 
+// The sticky depth badge replaces the blank spacer that sits below the 2nd
+// header border (between the search line and the tree rows). Help text wraps to
+// a variable number of lines on narrow terminals, so the slot can't be a fixed
+// index — derive it from the "Type to search:" line (border at +1, spacer at
+// +2). Falls back to the legacy constant when the search line isn't found.
+export function resolveStickyStatusLineIndex(lines) {
+	const searchIndex = lines.findIndex((line) => line.includes("Type to search:"));
+	if (searchIndex < 0) return TREE_STICKY_STATUS_LINE_INDEX;
+	const slot = searchIndex + 2;
+	return slot < lines.length ? slot : TREE_STICKY_STATUS_LINE_INDEX;
+}
+
 class ExpandedDetailPane {
 	constructor(tui) {
 		this.tui = tui;
@@ -1009,7 +1021,8 @@ class TreeXWrapper {
 		const { stickyLeftDepth } = getStickyLeftState(this.treeList);
 
 		if (stickyLeftDepth) {
-			lines[TREE_STICKY_STATUS_LINE_INDEX] = this.renderStickyLeftLine(theme, renderWidth, stickyLeftDepth);
+			const stickyIndex = resolveStickyStatusLineIndex(lines);
+			lines[stickyIndex] = this.renderStickyLeftLine(theme, renderWidth, stickyLeftDepth);
 		}
 
 		const detailLines = this.expandedDetail.expanded
