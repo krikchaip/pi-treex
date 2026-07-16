@@ -267,6 +267,7 @@ function renderWrappedTree({
 	filterMode,
 	nativeComponents = createNativeComponents(),
 	theme = createTheme(),
+	modelRegistry = { find: () => undefined },
 	modelRuntime = { getModel: () => undefined },
 	outputPad = 1,
 } = {}) {
@@ -282,6 +283,7 @@ function renderWrappedTree({
 	mode.sessionManager.getBranch = (entryId = leafId) => getBranchEntries(tree, entryId);
 	mode.session = {
 		sessionManager: mode.sessionManager,
+		modelRegistry,
 		modelRuntime,
 	};
 
@@ -493,6 +495,46 @@ test("assistant detail uses ModelRuntime context and removes blank lines", () =>
 	assert.ok(lines.some((line) => line.includes("Hello")));
 	assert.ok(lines.some((line) => line.includes("I am the assistant")));
 	assert.ok(lines.some((line) => line.includes("And I'm here to help you")));
+});
+
+test("detail pane resolves model context through ModelRuntime", () => {
+	const { lines } = renderWrappedTree({
+		tree: createAssistantDetailTree(),
+		leafId: "assistant-detail",
+		initialSelectedId: "assistant-detail",
+		filterMode: "all",
+		modelRegistry: null,
+		modelRuntime: {
+			getModel(provider, modelId) {
+				if (provider === "openai" && modelId === "gpt-test") {
+					return { contextWindow: 100000 };
+				}
+				return undefined;
+			},
+		},
+	});
+
+	assert.ok(lines.some((line) => line.includes("12.3%/100k")));
+});
+
+test("detail pane falls back to legacy model registry", () => {
+	const { lines } = renderWrappedTree({
+		tree: createAssistantDetailTree(),
+		leafId: "assistant-detail",
+		initialSelectedId: "assistant-detail",
+		filterMode: "all",
+		modelRuntime: null,
+		modelRegistry: {
+			find(provider, modelId) {
+				if (provider === "openai" && modelId === "gpt-test") {
+					return { contextWindow: 100000 };
+				}
+				return undefined;
+			},
+		},
+	});
+
+	assert.ok(lines.some((line) => line.includes("12.3%/100k")));
 });
 
 test("custom entry string data renders as human text", () => {

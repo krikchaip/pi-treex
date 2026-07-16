@@ -436,13 +436,20 @@ function getRenderedTreeLineCount(treeList) {
 }
 
 // Detail pane context helpers
+function findModel(session, modelIdentity) {
+	return (
+		session.modelRuntime?.getModel?.(modelIdentity.provider, modelIdentity.modelId) ??
+		session.modelRegistry?.find?.(modelIdentity.provider, modelIdentity.modelId)
+	);
+}
+
 function getDetailContextUsage(session, entry) {
 	const branchEntries = session.sessionManager.getBranch(entry.id);
 	const sessionContext = buildSessionContext(session.sessionManager.getEntries(), entry.id);
 	const modelIdentity = sessionContext.model ?? findLastAssistantModel(branchEntries);
 	if (!modelIdentity) return null;
 
-	const contextWindow = session.modelRuntime.getModel(modelIdentity.provider, modelIdentity.modelId)?.contextWindow;
+	const contextWindow = findModel(session, modelIdentity)?.contextWindow;
 	if (!contextWindow) return null;
 
 	const latestCompaction = getLatestCompactionEntry(branchEntries);
@@ -892,7 +899,7 @@ class TreeXWrapper {
 		// Patch native tree border colors to match theme accent
 		const theme = getTheme();
 		for (const child of this.selector.children || []) {
-			if (child && child.constructor && child.constructor.name === "DynamicBorder") {
+			if (child?.constructor && child.constructor.name === "DynamicBorder") {
 				child.color = (str) => theme.fg("accent", str);
 			}
 		}
