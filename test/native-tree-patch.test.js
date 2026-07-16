@@ -268,6 +268,7 @@ function renderWrappedTree({
 	nativeComponents = createNativeComponents(),
 	theme = createTheme(),
 	modelRegistry = { find: () => undefined },
+	modelRuntime,
 } = {}) {
 	globalThis[THEME_KEY] = theme;
 
@@ -281,6 +282,7 @@ function renderWrappedTree({
 	mode.session = {
 		sessionManager: mode.sessionManager,
 		modelRegistry,
+		modelRuntime,
 	};
 
 	const selector = new TreeSelectorComponent(
@@ -458,6 +460,26 @@ test("detail pane removes blank lines from wrapped text content", () => {
 	assert.ok(lines.some((line) => line.includes("Hello")));
 	assert.ok(lines.some((line) => line.includes("I am the assistant")));
 	assert.ok(lines.some((line) => line.includes("And I'm here to help you")));
+});
+
+test("detail pane resolves model context through ModelRuntime", () => {
+	const { lines } = renderWrappedTree({
+		tree: createAssistantDetailTree(),
+		leafId: "assistant-detail",
+		initialSelectedId: "assistant-detail",
+		filterMode: "all",
+		modelRegistry: null,
+		modelRuntime: {
+			getModel(provider, modelId) {
+				if (provider === "openai" && modelId === "gpt-test") {
+					return { contextWindow: 100000 };
+				}
+				return undefined;
+			},
+		},
+	});
+
+	assert.ok(lines.some((line) => line.includes("12.3%/100k")));
 });
 
 test("custom entry string data renders as human text", () => {
