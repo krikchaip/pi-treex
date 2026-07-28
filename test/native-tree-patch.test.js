@@ -347,6 +347,18 @@ test("native tree patch wraps the real tree selector and renders without crashin
 	assert.ok(findLine(lines, "selected branch message")?.startsWith("◆ "));
 });
 
+test("sticky-left removes the final indentation level on narrow terminals", () => {
+	const { mode, lines: wideLines } = renderWrappedTree();
+	const narrowLines = mode.child.render(40);
+	const narrowCurrentLine = findLine(narrowLines, "selected branch message");
+	const wideCurrentLine = findLine(wideLines, "selected branch message");
+
+	assert.ok(narrowCurrentLine);
+	assert.ok(wideCurrentLine);
+	assert.equal(narrowCurrentLine.indexOf("• user:"), 2);
+	assert.equal(wideCurrentLine.indexOf("• user:"), 5);
+});
+
 test("selector chrome is measured before placing the sticky-left status", () => {
 	const { mode, selector } = renderWrappedTree();
 	const wrappedHelpLines = simulateWrappedTreeHelp(selector);

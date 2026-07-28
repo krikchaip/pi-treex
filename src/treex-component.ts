@@ -8,6 +8,7 @@ import {
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const DETAIL_BODY_LINES = 3;
+const NARROW_TERMINAL_MAX_WIDTH = 50;
 const COMPACT_DETAIL_LINES = DETAIL_BODY_LINES + 2;
 const EXPANDED_DETAIL_CHROME_LINES = 4;
 const EXPANDED_DETAIL_MIN_LINES = EXPANDED_DETAIL_CHROME_LINES + DETAIL_BODY_LINES;
@@ -149,7 +150,7 @@ function getVisibleWindow(treeList) {
 	};
 }
 
-function getStickyLeftState(treeList) {
+function getStickyLeftState(treeList, width) {
 	const { startIndex, endIndex } = getVisibleWindow(treeList);
 	if (startIndex === endIndex) {
 		return {
@@ -166,7 +167,10 @@ function getStickyLeftState(treeList) {
 		minVisibleDisplayIndent = Math.min(minVisibleDisplayIndent, getDisplayIndent(treeList, flatNode));
 	}
 
-	const stickyLeftShift = Math.max(0, minVisibleDisplayIndent - 1);
+	// On phone-sized terminals, the cursor and path marker provide enough left-side
+	// structure without retaining a full three-cell indentation level.
+	const retainedIndent = width <= NARROW_TERMINAL_MAX_WIDTH ? 0 : 1;
+	const stickyLeftShift = Math.max(0, minVisibleDisplayIndent - retainedIndent);
 
 	return {
 		startIndex,
@@ -217,7 +221,7 @@ function markCurrentLine(treeList, lines) {
 }
 
 function renderWithStickyLeft(treeList, width, originalRender) {
-	const { startIndex, endIndex, stickyLeftShift } = getStickyLeftState(treeList);
+	const { startIndex, endIndex, stickyLeftShift } = getStickyLeftState(treeList, width);
 	if (stickyLeftShift === 0) {
 		return originalRender(width);
 	}
@@ -1015,7 +1019,7 @@ class TreeXWrapper {
 		const renderWidth = Math.max(20, width);
 
 		const { lines, treeLineCount } = this.renderSelectorWithLayout(renderWidth);
-		const { stickyLeftDepth } = getStickyLeftState(this.treeList);
+		const { stickyLeftDepth } = getStickyLeftState(this.treeList, renderWidth);
 
 		if (stickyLeftDepth && treeLineCount > 0) {
 			// The native bottom border remains after the tree rows. Replace the
