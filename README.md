@@ -24,14 +24,16 @@ This extension patches the /tree internals and could break if pi updates in an i
     <th width="50%">After</th>
   </tr>
   <tr>
-    <td width="50%"><img src="https://raw.githubusercontent.com/travisp/pi-treex/main/screenshots/before.png" alt="Built-in pi /tree view with deep indentation wasting most horizontal space" width="100%" /></td>
-    <td width="50%"><img src="https://raw.githubusercontent.com/travisp/pi-treex/main/screenshots/after.png" alt="TreeX-enhanced /tree view with sticky-left indentation and a bottom detail pane" width="100%" /></td>
+    <td width="50%"><img src="https://raw.githubusercontent.com/travisp/pi-treex/main/screenshots/before.png" alt="Native Pi 0.82 session tree at a phone-sized 50-column width" width="100%" /></td>
+    <td width="50%"><img src="https://raw.githubusercontent.com/travisp/pi-treex/main/screenshots/after.png" alt="TreeX session tree with compact phone indentation and a bottom detail pane" width="100%" /></td>
   </tr>
   <tr>
-    <td>The built-in tree can spend most of the viewport on indentation, leaving the actual row content heavily truncated.</td>
-    <td>TreeX shifts the visible branch left and keeps the selected row readable in a persistent detail pane.</td>
+    <td>Pi keeps the selected row visible, but deep branch gutters still consume much of a narrow viewport.</td>
+    <td>TreeX removes shared phone-width indentation while preserving relative branches, native panning, and selected-message detail.</td>
   </tr>
 </table>
+
+Captured at 50 columns with a Rose Pine-inspired theme.
 
 ## Detail View
 
