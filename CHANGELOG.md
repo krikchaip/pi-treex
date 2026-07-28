@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-07-28
+
+### Changed
+
+- Removed the final shared indentation level at phone-sized widths while preserving Pi's new native selected-row panning for exceptionally deep rows.
+
 ## 0.4.1 - 2026-07-16
 
 ### Changed
