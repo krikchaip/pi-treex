@@ -638,9 +638,12 @@ function renderCompactPlainTextLines(text, width) {
 	return compactDetailLines(renderPlainTextLines(text, width));
 }
 
-function removeNativeTreeTrailingSpacer(lines) {
+function compactNativeTreeSpacing(lines) {
 	const result = [...lines];
-	result.splice(-2, 1);
+	if (result[0] === "") result.shift();
+	if (result.length >= 2 && result[result.length - 2] === "") {
+		result.splice(result.length - 2, 1);
+	}
 	return result;
 }
 
@@ -906,7 +909,7 @@ class TreeXWrapper {
 	}
 
 	renderSelector(width) {
-		const lines = removeNativeTreeTrailingSpacer(this.selector.render(width));
+		const lines = compactNativeTreeSpacing(this.selector.render(width));
 		const treeLineCount = this.selector.labelInput ? 0 : getRenderedTreeLineCount(this.treeList);
 		return { lines, treeLineCount };
 	}

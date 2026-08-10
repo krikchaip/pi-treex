@@ -342,6 +342,8 @@ test("native tree patch wraps the real tree selector and renders without crashin
 
 	assert.notEqual(wrapper, selector);
 	assert.equal(mode.focus, wrapper);
+	assert.notEqual(lines[0], "");
+	assert.ok(lines[0].includes("─"));
 	assert.ok(findLine(lines, "depth 3"));
 	assert.ok(lines.some((line) => line.includes("selected branch message")));
 	assert.ok(lines.some((line) => line.includes("CURRENT")));
