@@ -21,6 +21,7 @@ import { installTreeXNativePatches } from "../src/treex-component.ts";
 import treexExtension from "../treex.ts";
 
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
+const TREE_HELP_HINTS_KEY = Symbol.for("pi:tree-help-hints");
 
 function createTheme() {
 	return {
@@ -37,6 +38,19 @@ function createStyledTheme() {
 		bg: (_name, text) => `\u001b[44m${text}\u001b[49m`,
 		bold: (text) => `\u001b[1m${text}\u001b[22m`,
 		italic: (text) => `\u001b[3m${text}\u001b[23m`,
+	};
+}
+
+function createHintTheme() {
+	const colors = {
+		dim: "\u001b[38;2;102;102;102m",
+		muted: "\u001b[38;2;128;128;128m",
+	};
+	return {
+		fg: (name, text) => (colors[name] ? `${colors[name]}${text}\u001b[39m` : text),
+		bg: (_name, text) => text,
+		bold: (text) => text,
+		italic: (text) => text,
 	};
 }
 
@@ -272,13 +286,16 @@ function renderWrappedTree({
 	modelRegistry = { find: () => undefined },
 	modelRuntime = { getModel: () => undefined },
 	outputPad = 1,
+	rows = 24,
+	treeHelpHints = [],
+	width = 80,
 } = {}) {
 	globalThis[THEME_KEY] = theme;
 
 	const InteractiveMode = createInteractiveModeClass();
 	installTreeXNativePatches(InteractiveMode, nativeComponents);
 
-	const mode = new InteractiveMode(24);
+	const mode = new InteractiveMode(rows);
 	mode.outputPad = outputPad;
 	const entries = collectEntries(tree);
 	mode.sessionManager.getEntries = () => entries;
@@ -292,16 +309,17 @@ function renderWrappedTree({
 	const selector = new TreeSelectorComponent(
 		tree,
 		leafId,
-		24,
+		rows,
 		() => {},
 		() => {},
 		() => {},
 		initialSelectedId,
 		filterMode,
 	);
+	selector[TREE_HELP_HINTS_KEY] = treeHelpHints;
 
 	mode.showSelector(() => ({ component: selector, focus: selector }));
-	return { mode, selector, lines: mode.child.render(80) };
+	return { mode, selector, lines: mode.child.render(width) };
 }
 
 function simulateWrappedTreeHelp(selector) {
@@ -730,13 +748,54 @@ test("tmux launch hints render and a successful launch closes the picker", () =>
 		nativeComponents: { ...createNativeComponents(), treeLauncher },
 	});
 
-	assert.ok(lines.some((line) => line.includes("ctrl+alt+s sp · ctrl+alt+v vsp · ctrl+alt+w win")));
+	assert.ok(lines.some((line) => line.includes("ctrl+alt+s sp")));
+	assert.ok(lines.some((line) => line.includes("ctrl+alt+v vsp")));
+	assert.ok(lines.some((line) => line.includes("ctrl+alt+w win")));
 	const wrapper = mode.child;
 	wrapper.expandedDetail.toggle();
 	wrapper.handleInput("\x1b[115;7u");
 	assert.equal(launched.entry.id, "user-root");
 	assert.equal(launched.target, "down");
 	assert.equal(mode.child, mode.editor);
+});
+
+test("builtin and tmux key hints share one semantic line and color", () => {
+	const treeLauncher = {
+		available: true,
+		targetForInput: () => undefined,
+	};
+	const { lines } = renderWrappedTree({
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+		theme: createHintTheme(),
+		width: 300,
+	});
+	const builtinHintLine = lines.find((line) => line.includes("↑/↓"));
+	const launchHintLine = lines.find((line) => line.includes("ctrl+alt+s"));
+
+	assert.ok(launchHintLine?.includes("cycle"));
+	assert.ok(builtinHintLine?.includes("\u001b[38;2;102;102;102m↑/↓\u001b[39m"), JSON.stringify(builtinHintLine));
+	assert.ok(builtinHintLine?.includes("\u001b[38;2;128;128;128m move\u001b[39m"));
+	assert.ok(launchHintLine?.includes("\u001b[38;2;102;102;102mctrl+alt+s\u001b[39m"));
+	assert.ok(launchHintLine?.includes("\u001b[38;2;128;128;128m sp\u001b[39m"));
+});
+
+test("tree delete hint renders between builtin and tmux hints", () => {
+	const treeLauncher = {
+		available: true,
+		targetForInput: () => undefined,
+	};
+	const { mode, lines } = renderWrappedTree({
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+		treeHelpHints: [{ key: "option+d", label: "delete" }],
+		width: 300,
+	});
+	const rendered = lines.join("\n");
+
+	assert.ok(rendered.indexOf("cycle") < rendered.indexOf("option+d delete"));
+	assert.ok(rendered.indexOf("option+d delete") < rendered.indexOf("ctrl+alt+s sp"));
+	const narrowRendered = mode.child.render(44).join("\n");
+	assert.ok(narrowRendered.includes("option+d delete"));
+	assert.ok(narrowRendered.includes("ctrl+alt+w win"));
 });
 
 test("tmux launch hints wrap within a narrow picker", () => {
@@ -746,11 +805,30 @@ test("tmux launch hints wrap within a narrow picker", () => {
 	};
 	const { mode } = renderWrappedTree({
 		nativeComponents: { ...createNativeComponents(), treeLauncher },
+		width: 44,
 	});
 	const lines = mode.child.render(44);
 	const rendered = lines.join("\n");
 
 	assert.ok(lines.every((line) => visibleWidth(line) <= 44));
+	assert.ok(lines.length <= mode.ui.terminal.rows);
+	assert.ok(rendered.includes("ctrl+alt+s sp"));
+	assert.ok(rendered.includes("ctrl+alt+v vsp"));
+	assert.ok(rendered.includes("ctrl+alt+w win"));
+});
+
+test("tmux launch hints stay visible on a short terminal", () => {
+	const treeLauncher = {
+		available: true,
+		targetForInput: () => undefined,
+	};
+	const { mode, lines } = renderWrappedTree({
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+		rows: 16,
+		width: 100,
+	});
+	const rendered = lines.join("\n");
+
 	assert.ok(lines.length <= mode.ui.terminal.rows);
 	assert.ok(rendered.includes("ctrl+alt+s sp"));
 	assert.ok(rendered.includes("ctrl+alt+v vsp"));

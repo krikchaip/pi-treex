@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
-import { appendTreeLaunchHelp } from "./tmux-tree-launch.js";
+import { renderTreeHelp } from "./tmux-tree-launch.js";
 
 const DETAIL_BODY_LINES = 3;
 const NARROW_TERMINAL_MAX_WIDTH = 50;
@@ -28,6 +28,8 @@ const FILTER_LABELS = {
 	all: "[all]",
 };
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
+const TREE_HELP_HINTS_KEY = Symbol.for("pi:tree-help-hints");
+const TREE_HELP_HINTS_CONSUMED_KEY = Symbol.for("pi:tree-help-hints-consumed");
 const SHOW_SELECTOR_PATCH = Symbol.for("pi-treex:show-selector-patch");
 const ESCAPE_CODE = 27;
 const BELL_CODE = 7;
@@ -894,6 +896,8 @@ class DetailContentRenderer {
 class TreeXWrapper {
 	constructor(selector, mode, nativeComponents, closeSelector) {
 		this.selector = selector;
+		this[TREE_HELP_HINTS_CONSUMED_KEY] = true;
+		this.selector[TREE_HELP_HINTS_CONSUMED_KEY] = true;
 		this.treeList = selector.getTreeList();
 		this.mode = mode;
 		this.tui = mode.ui;
@@ -913,11 +917,20 @@ class TreeXWrapper {
 			}
 			const isTreeHelp =
 				child?.constructor?.name === "TreeHelp" || children[index + 1]?.constructor?.name === "SearchLine";
-			if (this.treeLauncher?.available && isTreeHelp) {
+			if (isTreeHelp) {
 				const renderHelp = child.render.bind(child);
-				child.render = (width) => appendTreeLaunchHelp(renderHelp(width), width, getTheme(), this.treeLaunchError);
+				child.render = (width) =>
+					renderTreeHelp(renderHelp, width, getTheme(), {
+						treeHints: this[TREE_HELP_HINTS_KEY] ?? this.selector[TREE_HELP_HINTS_KEY],
+						showTreeLaunchHints: this.treeLauncher?.available,
+						errorMessage: this.treeLaunchError,
+					});
 			}
 		}
+	}
+
+	getTreeList() {
+		return this.treeList;
 	}
 
 	renderSelector(width) {
