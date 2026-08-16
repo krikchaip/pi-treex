@@ -281,6 +281,7 @@ function renderWrappedTree({
 	leafId = "branch-5",
 	initialSelectedId,
 	filterMode,
+	keybindings = { matches: () => false },
 	nativeComponents = createNativeComponents(),
 	theme = createTheme(),
 	modelRegistry = { find: () => undefined },
@@ -296,6 +297,7 @@ function renderWrappedTree({
 	installTreeXNativePatches(InteractiveMode, nativeComponents);
 
 	const mode = new InteractiveMode(rows);
+	mode.keybindings = keybindings;
 	mode.outputPad = outputPad;
 	const entries = collectEntries(tree);
 	mode.sessionManager.getEntries = () => entries;
@@ -728,6 +730,23 @@ test("detail pane can render user messages with native styling", () => {
 
 	assert.ok(lines.some((line) => line.includes("\u001b[44m")));
 	assert.ok(lines.some((line) => line.includes("say hello")));
+});
+
+test("configured tree hotkey toggles the picker closed", () => {
+	const matches = [];
+	const { mode } = renderWrappedTree({
+		keybindings: {
+			matches: (keyData, action) => {
+				matches.push([keyData, action]);
+				return keyData === "configured-tree-key" && action === "app.session.tree";
+			},
+		},
+	});
+
+	mode.child.handleInput("configured-tree-key");
+
+	assert.equal(mode.child, mode.editor);
+	assert.deepEqual(matches, [["configured-tree-key", "app.session.tree"]]);
 });
 
 test("tmux launch hints render and a successful launch closes the picker", () => {

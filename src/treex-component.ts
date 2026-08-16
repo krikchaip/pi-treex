@@ -972,6 +972,12 @@ class TreeXWrapper {
 	}
 
 	handleInput(keyData) {
+		if (this.mode.keybindings?.matches?.(keyData, "app.session.tree")) {
+			this.closeSelector();
+			this.tui.requestRender();
+			return;
+		}
+
 		const treeLaunchTarget = this.treeLauncher?.available ? this.treeLauncher.targetForInput(keyData) : undefined;
 		if (!this.selector.labelInput && treeLaunchTarget) {
 			const selected = this.getSelectedNode();
