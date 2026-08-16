@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
-import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const EDITOR_BOOTSTRAP_ENV = "PI_TREEX_EDITOR_BOOTSTRAP";
 const EDITOR_BOOTSTRAP_PREFIX = "pi-treex-editor-";
@@ -13,7 +13,17 @@ const TREE_LAUNCH_ITEMS = [
 	{ key: "ctrl+alt+v", label: "vsp", target: "right" },
 	{ key: "ctrl+alt+w", label: "win", target: "window" },
 ];
-
+const NATIVE_HELP_CAPTURE_WIDTH = 10_000;
+const NATIVE_HELP_ITEMS = [
+	{ label: "move" },
+	{ label: "page" },
+	{ label: "branch" },
+	{ label: "copy" },
+	{ label: "label" },
+	{ label: "label time" },
+	{ label: "filters", labelFirst: true },
+	{ label: "cycle", labelFirst: true },
+];
 function isTmuxAvailable(env = process.env) {
 	return Boolean(env.TMUX && env.TMUX_PANE);
 }
@@ -22,34 +32,108 @@ function targetForInput(keyData) {
 	return TREE_LAUNCH_ITEMS.find(({ key }) => matchesKey(keyData, key))?.target;
 }
 
-function formatHint(theme, key, label) {
-	return theme.fg("dim", key) + theme.fg("muted", ` ${label}`);
+function stripAnsi(text) {
+	let result = "";
+	for (let index = 0; index < text.length; index++) {
+		const code = text.charCodeAt(index);
+		if (code === 15) continue;
+		if (code !== 27 || text[index + 1] !== "[") {
+			result += text[index];
+			continue;
+		}
+		let end = index + 2;
+		while (end < text.length) {
+			const finalCode = text.charCodeAt(end);
+			if (finalCode >= 0x40 && finalCode <= 0x7e) break;
+			end++;
+		}
+		index = end;
+	}
+	return result;
 }
 
-function renderHintRows(width, theme) {
+function parseNativeHelpItem(text) {
+	for (const item of NATIVE_HELP_ITEMS) {
+		if (item.labelFirst) {
+			if (text === item.label) return { key: "", ...item };
+			if (text.startsWith(`${item.label} `)) return { key: text.slice(item.label.length + 1), ...item };
+			continue;
+		}
+		if (text === item.label) return { key: "", ...item };
+		if (text.endsWith(` ${item.label}`)) return { key: text.slice(0, -item.label.length - 1), ...item };
+	}
+	return { key: "", label: text, labelFirst: true };
+}
+
+function parseLegacyNativeHelp(text) {
+	const match = text.match(
+		/^(.+?): move\. (.+?): page\. (.+?): fold\/branch\. (.*?): label\. (.*?): filters \((.*?) cycle\)\. (.*?): label time$/,
+	);
+	if (!match) return undefined;
+	return [
+		{ key: match[1], label: "move" },
+		{ key: match[2], label: "page" },
+		{ key: match[3], label: "fold/branch" },
+		{ key: match[4], label: "label" },
+		{ key: match[5], label: "filters", labelFirst: true },
+		{ key: match[6], label: "cycle", labelFirst: true },
+		{ key: match[7], label: "label time" },
+	];
+}
+
+function getNativeHelpItems(renderNativeHelp) {
+	const text = renderNativeHelp(NATIVE_HELP_CAPTURE_WIDTH)
+		.map((line) => stripAnsi(line).trim())
+		.filter(Boolean)
+		.join(" ");
+	return parseLegacyNativeHelp(text) ?? text.split(" · ").map(parseNativeHelpItem);
+}
+
+function formatHint(theme, { key, label, labelFirst }) {
+	if (!key) return theme.fg("muted", label);
+	return labelFirst
+		? theme.fg("muted", `${label} `) + theme.fg("dim", key)
+		: theme.fg("dim", key) + theme.fg("muted", ` ${label}`);
+}
+
+function renderHintRows(items, width, theme) {
+	const availableWidth = Math.max(1, width);
 	const indent = "  ";
 	const separator = theme.fg("muted", " · ");
-	const hints = TREE_LAUNCH_ITEMS.map(({ key, label }) => formatHint(theme, key, label));
+	const hints = items.map((item) => formatHint(theme, item));
 	const rows = [];
 	let row = "";
 
 	for (const hint of hints) {
-		const candidate = row ? `${row}${separator}${hint}` : `${indent}${hint}`;
-		if (!row || visibleWidth(candidate) <= width) {
+		const candidate = row
+			? `${row}${separator}${hint}`
+			: visibleWidth(`${indent}${hint}`) <= availableWidth
+				? `${indent}${hint}`
+				: hint;
+		if (!row || visibleWidth(candidate) <= availableWidth) {
 			row = candidate;
 			continue;
 		}
-		rows.push(truncateToWidth(row, width, "…"));
-		row = visibleWidth(`${indent}${hint}`) <= width ? `${indent}${hint}` : hint;
+		rows.push(...wrapTextWithAnsi(row.trimEnd(), availableWidth));
+		row = visibleWidth(`${indent}${hint}`) <= availableWidth ? `${indent}${hint}` : hint;
 	}
-	if (row) rows.push(truncateToWidth(row, width, "…"));
+	if (row) rows.push(...wrapTextWithAnsi(row.trimEnd(), availableWidth));
 	return rows;
 }
 
-export function appendTreeLaunchHelp(lines, width, theme, errorMessage) {
-	const result = [...lines, ...renderHintRows(width, theme)];
-	if (errorMessage) {
-		result.push(truncateToWidth(`  ${theme.fg("error", errorMessage)}`, width, "…"));
+export function renderTreeHelp(renderNativeHelp, width, theme, options = {}) {
+	const items = getNativeHelpItems(renderNativeHelp);
+	if (Array.isArray(options.treeHints)) {
+		items.push(
+			...options.treeHints.filter((item) => item && typeof item.key === "string" && typeof item.label === "string"),
+		);
+	}
+	if (options.showTreeLaunchHints) {
+		items.push(...TREE_LAUNCH_ITEMS);
+	}
+	const result = renderHintRows(items, width, theme);
+	if (options.errorMessage) {
+		result.push(truncateToWidth(`  ${theme.fg("error", options.errorMessage)}`, width, "…"));
 	}
 	return result;
 }
