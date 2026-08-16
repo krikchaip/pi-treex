@@ -7,6 +7,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
+import { appendTreeLaunchHelp } from "./tmux-tree-launch.js";
+
 const DETAIL_BODY_LINES = 3;
 const NARROW_TERMINAL_MAX_WIDTH = 50;
 const COMPACT_DETAIL_LINES = DETAIL_BODY_LINES + 2;
@@ -890,20 +892,30 @@ class DetailContentRenderer {
 }
 
 class TreeXWrapper {
-	constructor(selector, mode, nativeComponents) {
+	constructor(selector, mode, nativeComponents, closeSelector) {
 		this.selector = selector;
 		this.treeList = selector.getTreeList();
 		this.mode = mode;
 		this.tui = mode.ui;
+		this.closeSelector = closeSelector;
+		this.treeLauncher = nativeComponents.treeLauncher;
+		this.treeLaunchError = undefined;
 		this.detailContent = new DetailContentRenderer(mode, this.treeList, nativeComponents);
 		this.expandedDetail = new ExpandedDetailPane();
 		patchTreeListRender(this.treeList);
 
 		// Patch native tree border colors to match theme accent
 		const theme = getTheme();
-		for (const child of this.selector.children || []) {
+		const children = this.selector.children || [];
+		for (const [index, child] of children.entries()) {
 			if (child?.constructor && child.constructor.name === "DynamicBorder") {
 				child.color = (str) => theme.fg("accent", str);
+			}
+			const isTreeHelp =
+				child?.constructor?.name === "TreeHelp" || children[index + 1]?.constructor?.name === "SearchLine";
+			if (this.treeLauncher?.available && isTreeHelp) {
+				const renderHelp = child.render.bind(child);
+				child.render = (width) => appendTreeLaunchHelp(renderHelp(width), width, getTheme(), this.treeLaunchError);
 			}
 		}
 	}
@@ -947,6 +959,22 @@ class TreeXWrapper {
 	}
 
 	handleInput(keyData) {
+		const treeLaunchTarget = this.treeLauncher?.available ? this.treeLauncher.targetForInput(keyData) : undefined;
+		if (!this.selector.labelInput && treeLaunchTarget) {
+			const selected = this.getSelectedNode();
+			const result = selected
+				? this.treeLauncher.launch(this.mode, selected.node.entry, treeLaunchTarget)
+				: { ok: false, error: "Select a tree entry first" };
+			if (result.ok) {
+				this.closeSelector();
+				return;
+			}
+			this.treeLaunchError = result.error;
+			this.tui.requestRender();
+			return;
+		}
+
+		this.treeLaunchError = undefined;
 		if (!this.selector.labelInput && matchesKey(keyData, REVIEW_DETAIL_KEY)) {
 			this.expandedDetail.toggle();
 		} else if (this.expandedDetail.expanded) {
@@ -1078,7 +1106,7 @@ export function installTreeXNativePatches(InteractiveMode, nativeComponents) {
 				return result;
 			}
 
-			const wrapper = new TreeXWrapper(selector, this, nativeComponents);
+			const wrapper = new TreeXWrapper(selector, this, nativeComponents, done);
 			return { component: wrapper, focus: wrapper };
 		});
 	};

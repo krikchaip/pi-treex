@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
+import { visibleWidth } from "@earendil-works/pi-tui";
+
 import {
 	AssistantMessageComponent,
 	BashExecutionComponent,
@@ -708,6 +710,80 @@ test("detail pane can render user messages with native styling", () => {
 
 	assert.ok(lines.some((line) => line.includes("\u001b[44m")));
 	assert.ok(lines.some((line) => line.includes("say hello")));
+});
+
+test("tmux launch hints render and a successful launch closes the picker", () => {
+	let launched;
+	const treeLauncher = {
+		available: true,
+		targetForInput: (keyData) => (keyData === "\x1b[115;7u" ? "down" : undefined),
+		launch: (mode, entry, target) => {
+			launched = { mode, entry, target };
+			return { ok: true };
+		},
+	};
+	const tree = [makeNode("user-root", null, "initial prompt")];
+	const { mode, lines } = renderWrappedTree({
+		tree,
+		leafId: "user-root",
+		initialSelectedId: "user-root",
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+	});
+
+	assert.ok(lines.some((line) => line.includes("ctrl+alt+s sp · ctrl+alt+v vsp · ctrl+alt+w win")));
+	const wrapper = mode.child;
+	wrapper.expandedDetail.toggle();
+	wrapper.handleInput("\x1b[115;7u");
+	assert.equal(launched.entry.id, "user-root");
+	assert.equal(launched.target, "down");
+	assert.equal(mode.child, mode.editor);
+});
+
+test("tmux launch hints wrap within a narrow picker", () => {
+	const treeLauncher = {
+		available: true,
+		targetForInput: () => undefined,
+	};
+	const { mode } = renderWrappedTree({
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+	});
+	const lines = mode.child.render(44);
+	const rendered = lines.join("\n");
+
+	assert.ok(lines.every((line) => visibleWidth(line) <= 44));
+	assert.ok(lines.length <= mode.ui.terminal.rows);
+	assert.ok(rendered.includes("ctrl+alt+s sp"));
+	assert.ok(rendered.includes("ctrl+alt+v vsp"));
+	assert.ok(rendered.includes("ctrl+alt+w win"));
+});
+
+test("tmux launch failure stays in the picker with an inline error", () => {
+	const treeLauncher = {
+		available: true,
+		targetForInput: (keyData) => (keyData === "\x1b[118;7u" ? "right" : undefined),
+		launch: () => ({ ok: false, error: "Tree launch failed: no pane available" }),
+	};
+	const { mode } = renderWrappedTree({
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+	});
+	const wrapper = mode.child;
+
+	wrapper.handleInput("\x1b[118;7u");
+	assert.equal(mode.child, wrapper);
+	assert.ok(wrapper.render(80).some((line) => line.includes("Tree launch failed: no pane available")));
+
+	wrapper.handleInput("x");
+	assert.ok(!wrapper.render(80).some((line) => line.includes("Tree launch failed: no pane available")));
+});
+
+test("tmux launch hints stay hidden outside tmux", () => {
+	const { lines } = renderWrappedTree({
+		nativeComponents: {
+			...createNativeComponents(),
+			treeLauncher: { available: false, targetForInput: () => undefined },
+		},
+	});
+	assert.ok(!lines.some((line) => line.includes("ctrl+alt+s")));
 });
 
 test("treex entry loads components from the host entry point", async () => {
