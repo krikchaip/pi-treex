@@ -20,8 +20,28 @@ import { TreeSelectorComponent } from "../node_modules/@earendil-works/pi-coding
 import { installTreeXNativePatches } from "../src/treex-component.ts";
 import treexExtension from "../treex.ts";
 
+const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const TREE_HELP_HINTS_KEY = Symbol.for("pi:tree-help-hints");
+
+function createFixedComponent(lines) {
+	return {
+		render: () => [...lines],
+	};
+}
+
+function createVStack(entries) {
+	return {
+		[LAYOUT_NODE]() {
+			return { type: "vstack", entries };
+		},
+		render(width) {
+			return entries
+				.filter((entry) => entry.visible?.({ width, height: Number.MAX_SAFE_INTEGER }) ?? true)
+				.flatMap((entry) => entry.component.render(width));
+		},
+	};
+}
 
 function createTheme() {
 	return {
@@ -97,16 +117,20 @@ function createInteractiveModeClass() {
 		}
 
 		showSelector(create) {
+			const lifecycle = {};
 			const done = () => {
+				lifecycle.dispose?.();
 				this.editorContainer.clear();
 				this.editorContainer.addChild(this.editor);
 				this.ui.setFocus(this.editor);
 			};
 
-			const { component, focus } = create(done);
+			const created = create(done);
+			lifecycle.dispose = created.dispose;
+			this.activeSelectorDispose = created.dispose;
 			this.editorContainer.clear();
-			this.editorContainer.addChild(component);
-			this.ui.setFocus(focus);
+			this.editorContainer.addChild(created.component);
+			this.ui.setFocus(created.focus);
 			this.ui.requestRender();
 		}
 	};
@@ -371,6 +395,19 @@ test("native tree patch wraps the real tree selector and renders without crashin
 	assert.ok(lines.some((line) => line.includes("CURRENT")));
 	assert.match(detailHeader ?? "", /\d+\/\d+ · DEPTH \d+ · CURRENT\s+│\s+USER/);
 	assert.ok(findLine(lines, "selected branch message")?.startsWith("◆ "));
+});
+
+test("native and detail borders use the theme accent", () => {
+	const theme = {
+		...createTheme(),
+		fg: (name, text) => (name === "accent" ? `accent:${text}` : text),
+	};
+	const { selector, lines } = renderWrappedTree({ theme });
+	const nativeBorders = selector.children.filter((child) => child?.constructor?.name === "DynamicBorder");
+
+	assert.ok(nativeBorders.length > 0);
+	assert.ok(nativeBorders.every((border) => border.color("─") === "accent:─"));
+	assert.ok(lines.at(-1)?.startsWith("accent:"));
 });
 
 test("sticky-left removes the final indentation level on narrow terminals", () => {
@@ -651,6 +688,74 @@ test("ctrl+r toggles a full detail drawer", () => {
 
 	mode.child.handleInput("\x1b");
 	assert.equal(mode.child.expandedDetail.expanded, false);
+});
+
+test("expanded page navigation uses the last rendered body height", () => {
+	const content = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join("\n");
+	const tree = [
+		makeMessageNode("long-assistant", null, {
+			role: "assistant",
+			content: [{ type: "text", text: content }],
+			stopReason: "stop",
+		}),
+	];
+	const { mode } = renderWrappedTree({
+		tree,
+		leafId: "long-assistant",
+		initialSelectedId: "long-assistant",
+		filterMode: "all",
+		rows: 30,
+	});
+
+	mode.child.handleInput("\x12");
+	mode.child.render(60);
+	const renderedBodyHeight = mode.child.expandedDetail.bodyHeight;
+	assert.ok(renderedBodyHeight > 1);
+
+	mode.ui.terminal.rows = 1;
+	mode.child.handleInput("\x1b[C");
+	assert.equal(mode.child.expandedDetail.scrollOffset, renderedBodyHeight);
+
+	mode.ui.terminal.rows = 30;
+	const pagedLines = mode.child.render(60);
+	assert.ok(pagedLines.some((line) => line.includes(`${renderedBodyHeight + 1}-`)));
+});
+
+test("expanded detail keeps key hints visible in fullscreen layout", () => {
+	const { mode } = renderWrappedTree();
+	mode.ui.terminal.rows = 30;
+
+	const transcript = createFixedComponent(["transcript"]);
+	mode.widgetContainerBelow = createFixedComponent(["bottom widget"]);
+	mode.footerContainer = createFixedComponent(["footer one", "footer two"]);
+	const dock = createVStack([
+		{ component: mode.editorContainer, shrink: 1, minSize: 3 },
+		{ component: mode.widgetContainerBelow, shrink: 1, minSize: 0 },
+		{ component: mode.footerContainer, shrink: 1, minSize: 1 },
+	]);
+	mode.fullscreenLayoutRoot = createVStack([
+		{ component: transcript, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+		{ component: dock, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
+	]);
+
+	mode.child.handleInput("\x12");
+	const expandedLines = mode.child.render(80);
+
+	assert.deepEqual(mode.widgetContainerBelow.render(80), []);
+	assert.deepEqual(mode.footerContainer.render(80), []);
+	assert.ok(expandedLines.length <= 29);
+	assert.ok(expandedLines.some((line) => line.includes("Esc/Ctrl+R collapse")));
+	assert.ok(expandedLines.some((line) => line.includes("↑↓ scroll")));
+
+	mode.child.handleInput("\x1b");
+	assert.deepEqual(mode.widgetContainerBelow.render(80), ["bottom widget"]);
+	assert.deepEqual(mode.footerContainer.render(80), ["footer one", "footer two"]);
+
+	mode.child.handleInput("\x12");
+	assert.equal(typeof mode.activeSelectorDispose, "function");
+	mode.activeSelectorDispose();
+	assert.deepEqual(mode.widgetContainerBelow.render(80), ["bottom widget"]);
+	assert.deepEqual(mode.footerContainer.render(80), ["footer one", "footer two"]);
 });
 
 test("detail pane pluralizes relative time metadata", () => {

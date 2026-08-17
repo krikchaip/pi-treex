@@ -27,6 +27,7 @@ const FILTER_LABELS = {
 	"labeled-only": "[labeled]",
 	all: "[all]",
 };
+const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const TREE_HELP_HINTS_KEY = Symbol.for("pi:tree-help-hints");
 const TREE_HELP_HINTS_CONSUMED_KEY = Symbol.for("pi:tree-help-hints-consumed");
@@ -36,6 +37,98 @@ const BELL_CODE = 7;
 
 function getTheme() {
 	return globalThis[THEME_KEY];
+}
+
+function normalizeLayoutSize(value, fallback) {
+	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function layoutNode(component) {
+	const getNode = component?.[LAYOUT_NODE];
+	return typeof getNode === "function" ? getNode.call(component) : undefined;
+}
+
+function containsLayoutComponent(component, target) {
+	if (component === target) return true;
+
+	const node = layoutNode(component);
+	return Boolean(node?.entries?.some((entry) => containsLayoutComponent(entry.component, target)));
+}
+
+function findLayoutEntry(component, target) {
+	const node = layoutNode(component);
+	if (!Array.isArray(node?.entries)) return undefined;
+
+	for (const entry of node.entries) {
+		if (entry.component === target) return entry;
+		const nested = findLayoutEntry(entry.component, target);
+		if (nested) return nested;
+	}
+
+	return undefined;
+}
+
+function renderedHeight(component, width) {
+	try {
+		const lines = component?.render?.(width);
+		return Array.isArray(lines) ? lines.length : 0;
+	} catch {
+		return 0;
+	}
+}
+
+function stackEntryHeight(entry, width) {
+	const intrinsic = typeof entry.basis === "number" ? entry.basis : renderedHeight(entry.component, width);
+	const minimum = normalizeLayoutSize(entry.minSize, 0);
+	const maximum = Math.max(minimum, normalizeLayoutSize(entry.maxSize, Number.MAX_SAFE_INTEGER));
+	return Math.max(minimum, Math.min(maximum, Math.floor(intrinsic)));
+}
+
+function allocatedLayoutHeight(component, target, width, height) {
+	if (component === target) return Math.max(0, Math.floor(height));
+
+	const node = layoutNode(component);
+	if (node?.type !== "vstack" || !Array.isArray(node.entries)) return undefined;
+
+	const viewport = { width, height };
+	const entries = node.entries.filter((entry) => {
+		try {
+			return entry.visible?.(viewport) ?? true;
+		} catch {
+			return true;
+		}
+	});
+	const targetEntry = entries.find((entry) => containsLayoutComponent(entry.component, target));
+	if (!targetEntry) return undefined;
+
+	const gap = normalizeLayoutSize(node.gap, 0);
+	const reservedHeight =
+		Math.max(0, entries.length - 1) * gap +
+		entries
+			.filter((entry) => entry !== targetEntry)
+			.reduce((total, entry) => total + stackEntryHeight(entry, width), 0);
+	const minimum = normalizeLayoutSize(targetEntry.minSize, 0);
+	const maximum = Math.max(minimum, normalizeLayoutSize(targetEntry.maxSize, Number.MAX_SAFE_INTEGER));
+	const targetHeight = Math.max(minimum, Math.min(maximum, Math.max(0, height - reservedHeight)));
+
+	return allocatedLayoutHeight(targetEntry.component, target, width, targetHeight);
+}
+
+function availablePickerRows(mode, width) {
+	const terminalRows = mode.ui?.terminal?.rows;
+	if (!Number.isFinite(terminalRows)) return undefined;
+
+	const fromLayout = allocatedLayoutHeight(mode.fullscreenLayoutRoot, mode.editorContainer, width, terminalRows);
+	if (fromLayout !== undefined) return fromLayout;
+
+	const uiChildren = mode.ui?.children;
+	const editorIndex = uiChildren?.indexOf?.(mode.editorContainer);
+	if (!Array.isArray(uiChildren) || editorIndex < 0) return terminalRows;
+
+	const rowsBelow = uiChildren
+		.slice(editorIndex + 1)
+		.reduce((total, component) => total + renderedHeight(component, width), 0);
+	return Math.max(0, terminalRows - rowsBelow);
 }
 
 function normalizeDetail(text) {
@@ -412,20 +505,20 @@ function describeEntry(treeList, node) {
 	}
 }
 
-function calculateTreeDetailLayout(terminalRows, detailExpanded, selectorChromeLines) {
+function calculateTreeDetailLayout(availableRows, detailExpanded, selectorChromeLines) {
 	if (detailExpanded) {
-		const availableRows = Math.max(1, terminalRows - selectorChromeLines);
+		const availableContentRows = Math.max(1, availableRows - selectorChromeLines);
 		const treeRows = Math.min(
 			EXPANDED_DETAIL_PREFERRED_TREE_ROWS,
-			Math.max(1, availableRows - EXPANDED_DETAIL_MIN_LINES),
+			Math.max(1, availableContentRows - EXPANDED_DETAIL_MIN_LINES),
 		);
-		const detailBodyRows = Math.max(1, availableRows - treeRows - EXPANDED_DETAIL_CHROME_LINES);
+		const detailBodyRows = Math.max(1, availableContentRows - treeRows - EXPANDED_DETAIL_CHROME_LINES);
 
 		return { treeRows, detailBodyRows };
 	}
 
-	const preferredTreeRows = Math.max(5, Math.floor(terminalRows / 2) - COMPACT_DETAIL_LINES);
-	const availableTreeRows = Math.max(1, terminalRows - selectorChromeLines - COMPACT_DETAIL_LINES);
+	const preferredTreeRows = Math.max(5, Math.floor(availableRows / 2) - COMPACT_DETAIL_LINES);
+	const availableTreeRows = Math.max(1, availableRows - selectorChromeLines - COMPACT_DETAIL_LINES);
 	return {
 		treeRows: Math.min(preferredTreeRows, availableTreeRows),
 		detailBodyRows: DETAIL_BODY_LINES,
@@ -894,8 +987,9 @@ class DetailContentRenderer {
 }
 
 class TreeXWrapper {
-	constructor(selector, mode, nativeComponents, closeSelector) {
+	constructor(selector, mode, nativeComponents, closeSelector, disposeSelector) {
 		this.selector = selector;
+		this.disposeSelector = typeof disposeSelector === "function" ? () => disposeSelector() : () => selector.dispose?.();
 		this[TREE_HELP_HINTS_CONSUMED_KEY] = true;
 		this.selector[TREE_HELP_HINTS_CONSUMED_KEY] = true;
 		this.treeList = selector.getTreeList();
@@ -906,6 +1000,8 @@ class TreeXWrapper {
 		this.treeLaunchError = undefined;
 		this.detailContent = new DetailContentRenderer(mode, this.treeList, nativeComponents);
 		this.expandedDetail = new ExpandedDetailPane();
+		this.hiddenBottomEntries = [];
+		this.hiddenBottomComponents = [];
 		patchTreeListRender(this.treeList);
 
 		// Patch native tree border colors to match theme accent
@@ -941,11 +1037,12 @@ class TreeXWrapper {
 
 	renderSelectorWithLayout(width) {
 		// Pi's tree help wraps based on terminal width. Measure its rendered chrome,
-		// then give the remaining rows to the tree and detail pane.
+		// then give the editor's live fullscreen allocation to the tree and detail pane.
 		let rendered = this.renderSelector(width);
 		const selectorChromeLines = rendered.lines.length - rendered.treeLineCount;
+		const availableRows = availablePickerRows(this.mode, width) ?? this.tui.terminal.rows;
 		const { treeRows, detailBodyRows } = calculateTreeDetailLayout(
-			this.tui.terminal.rows,
+			availableRows,
 			this.expandedDetail.expanded,
 			selectorChromeLines,
 		);
@@ -969,6 +1066,51 @@ class TreeXWrapper {
 
 	invalidate() {
 		this.selector.invalidate();
+	}
+
+	setExpandedLayout(expanded) {
+		if (!expanded) {
+			this.restoreLayout();
+			return;
+		}
+		if (this.hiddenBottomComponents.length > 0) return;
+
+		const root = this.mode.fullscreenLayoutRoot;
+		for (const component of [this.mode.widgetContainerBelow, this.mode.footerContainer]) {
+			if (!component) continue;
+
+			this.hiddenBottomComponents.push({
+				component,
+				hadRender: Object.prototype.hasOwnProperty.call(component, "render"),
+				render: component.render,
+			});
+			component.render = () => [];
+
+			const entry = findLayoutEntry(root, component);
+			if (!entry) continue;
+			this.hiddenBottomEntries.push({
+				entry,
+				hadVisible: Object.prototype.hasOwnProperty.call(entry, "visible"),
+				visible: entry.visible,
+			});
+			entry.visible = () => false;
+		}
+	}
+
+	restoreLayout() {
+		for (const snapshot of this.hiddenBottomEntries) {
+			if (snapshot.hadVisible) snapshot.entry.visible = snapshot.visible;
+			// biome-ignore lint/performance/noDelete: restore inherited or absent layout state exactly.
+			else delete snapshot.entry.visible;
+		}
+		this.hiddenBottomEntries = [];
+
+		for (const snapshot of this.hiddenBottomComponents) {
+			if (snapshot.hadRender) snapshot.component.render = snapshot.render;
+			// biome-ignore lint/performance/noDelete: restore prototype-based component rendering exactly.
+			else delete snapshot.component.render;
+		}
+		this.hiddenBottomComponents = [];
 	}
 
 	handleInput(keyData) {
@@ -996,13 +1138,22 @@ class TreeXWrapper {
 		this.treeLaunchError = undefined;
 		if (!this.selector.labelInput && matchesKey(keyData, REVIEW_DETAIL_KEY)) {
 			this.expandedDetail.toggle();
+			this.setExpandedLayout(this.expandedDetail.expanded);
 		} else if (this.expandedDetail.expanded) {
 			this.expandedDetail.handleInput(keyData);
+			this.setExpandedLayout(this.expandedDetail.expanded);
 		} else {
 			this.selector.handleInput(keyData);
 		}
 
 		this.tui.requestRender();
+	}
+
+	dispose() {
+		this.restoreLayout();
+		const disposeSelector = this.disposeSelector;
+		this.disposeSelector = undefined;
+		disposeSelector?.();
 	}
 
 	renderStickyLeftLine(theme, width, stickyLeftDepth) {
@@ -1125,8 +1276,8 @@ export function installTreeXNativePatches(InteractiveMode, nativeComponents) {
 				return result;
 			}
 
-			const wrapper = new TreeXWrapper(selector, this, nativeComponents, done);
-			return { component: wrapper, focus: wrapper };
+			const wrapper = new TreeXWrapper(selector, this, nativeComponents, done, result.dispose);
+			return { component: wrapper, focus: wrapper, dispose: () => wrapper.dispose() };
 		});
 	};
 
