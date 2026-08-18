@@ -625,6 +625,48 @@ test("bash detail uses the same native rendering in both preview modes", () => {
 	assert.ok(expandedLines.some((line) => line.includes("$ npm test")));
 });
 
+test("assistant thinking blocks stay hidden in both detail modes", () => {
+	class TrackingAssistantMessageComponent {
+		constructor(message) {
+			this.message = message;
+		}
+
+		render() {
+			return this.message.content.map((block) => block.text ?? block.thinking ?? "");
+		}
+	}
+	const tree = [
+		makeMessageNode("assistant-thinking", null, {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "SECRET THINKING" },
+				{ type: "text", text: "VISIBLE ANSWER" },
+			],
+			stopReason: "stop",
+		}),
+	];
+	const { mode, lines } = renderWrappedTree({
+		tree,
+		leafId: "assistant-thinking",
+		initialSelectedId: "assistant-thinking",
+		filterMode: "all",
+		nativeComponents: createNativeComponents({
+			assistantMessageComponent: TrackingAssistantMessageComponent,
+		}),
+		rows: 40,
+	});
+
+	assert.ok(lines.some((line) => line.includes("VISIBLE ANSWER")));
+	assert.ok(!lines.some((line) => line.includes("SECRET THINKING")));
+	assert.ok(!lines.some((line) => line.includes("Thinking...")));
+
+	mode.child.handleInput("\x12");
+	const expandedLines = mode.child.render(80);
+	assert.ok(expandedLines.some((line) => line.includes("VISIBLE ANSWER")));
+	assert.ok(!expandedLines.some((line) => line.includes("SECRET THINKING")));
+	assert.ok(!expandedLines.some((line) => line.includes("Thinking...")));
+});
+
 test("assistant detail uses ModelRuntime context with native rendering", () => {
 	const { lines } = renderWrappedTree({
 		tree: createAssistantDetailTree(),

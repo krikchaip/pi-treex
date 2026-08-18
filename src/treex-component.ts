@@ -681,6 +681,14 @@ function isToolResultEntry(entry) {
 	return entry.type === "message" && entry.message.role === "toolResult";
 }
 
+function withoutThinkingBlocks(message) {
+	if (!Array.isArray(message?.content)) return message;
+	return {
+		...message,
+		content: message.content.filter((block) => block?.type !== "thinking"),
+	};
+}
+
 function compactDetailLines(lines) {
 	let start = 0;
 	while (start < lines.length && !hasVisibleText(lines[start])) start++;
@@ -864,7 +872,7 @@ class DetailContentRenderer {
 
 	createAssistantMessageComponent(entry) {
 		return new this.components.assistantMessageComponent(
-			entry.message,
+			withoutThinkingBlocks(entry.message),
 			this.mode.hideThinkingBlock,
 			this.mode.getMarkdownThemeWithSettings(),
 			this.mode.hiddenThinkingLabel,
