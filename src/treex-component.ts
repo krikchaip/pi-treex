@@ -800,8 +800,8 @@ class ExpandedDetailPane {
 			fitLine(theme.fg("muted", "NO SELECTION"), width),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...Array.from({ length: this.bodyHeight }, () => fitLine("", width)),
-			fitLine(theme.fg("muted", EXPANDED_DETAIL_COLLAPSE_HINT), width),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
+			fitLine(theme.fg("dim", EXPANDED_DETAIL_COLLAPSE_HINT), width),
 		];
 	}
 
@@ -817,22 +817,20 @@ class ExpandedDetailPane {
 
 		const firstVisibleLine = Math.min(lines.length, this.scrollOffset + 1);
 		const lastVisibleLine = Math.min(lines.length, this.scrollOffset + this.bodyHeight);
-		const percent = lines.length <= this.bodyHeight ? 100 : Math.round((lastVisibleLine / lines.length) * 100);
 		const footerParts = [
-			EXPANDED_DETAIL_COLLAPSE_HINT,
 			`${firstVisibleLine}-${lastVisibleLine}/${lines.length}`,
-			`${percent}%`,
 			"↑↓ scroll",
 			"←/→ page",
 			"Home/End",
+			EXPANDED_DETAIL_COLLAPSE_HINT,
 		];
 
 		return [
 			fitLine(theme.bold(title), width),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...visibleLines.map((line) => fitLine(line, width)),
-			fitLine(theme.fg("muted", footerParts.join(METADATA_SEPARATOR)), width),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
+			fitLine(theme.fg("dim", footerParts.join(METADATA_SEPARATOR)), width),
 		];
 	}
 }

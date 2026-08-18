@@ -678,7 +678,7 @@ test("ctrl+r toggles a full detail drawer", () => {
 
 	assert.equal(mode.focus, mode.child);
 	assert.equal(mode.child.expandedDetail.expanded, true);
-	const expandedLines = mode.child.render(60);
+	const expandedLines = mode.child.render(80);
 	assert.ok(expandedLines.some((line) => line.includes("FULL ASSISTANT MESSAGE")));
 	assert.ok(expandedLines.some((line) => line.includes("one")));
 	assert.ok(expandedLines.some((line) => line.includes("two")));
@@ -688,6 +688,37 @@ test("ctrl+r toggles a full detail drawer", () => {
 
 	mode.child.handleInput("\x1b");
 	assert.equal(mode.child.expandedDetail.expanded, false);
+});
+
+test("expanded detail footer matches resume ordering, color, and border placement", () => {
+	const tree = [
+		makeMessageNode("long-assistant", null, {
+			role: "assistant",
+			content: [{ type: "text", text: "one\ntwo\nthree\nfour" }],
+			stopReason: "stop",
+		}),
+	];
+	const { mode } = renderWrappedTree({
+		tree,
+		leafId: "long-assistant",
+		initialSelectedId: "long-assistant",
+		filterMode: "all",
+		theme: createHintTheme(),
+	});
+
+	mode.child.handleInput("\x12");
+	const expandedLines = mode.child.render(80);
+	const hintIndex = expandedLines.findIndex((line) => line.includes("Esc/Ctrl+R collapse"));
+	const hintLine = expandedLines[hintIndex];
+
+	assert.ok(hintIndex > 0);
+	const dimPrefix = "\u001b[38;2;102;102;102m";
+	const colorReset = "\u001b[39m";
+	assert.ok(hintLine.startsWith(dimPrefix), JSON.stringify(hintLine));
+	const plainHint = hintLine.slice(dimPrefix.length, hintLine.indexOf(colorReset));
+	assert.match(plainHint, /^1-\d+\/\d+ · ↑↓ scroll · ←\/→ page · Home\/End · Esc\/Ctrl\+R collapse$/);
+	assert.ok(expandedLines[hintIndex - 1].includes("─"));
+	assert.ok(!expandedLines[hintIndex + 1]?.includes("─"));
 });
 
 test("expanded page navigation uses the last rendered body height", () => {
