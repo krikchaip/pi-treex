@@ -410,8 +410,96 @@ test("native and detail borders use the theme accent", () => {
 	assert.ok(lines.at(-1)?.startsWith("accent:"));
 });
 
+test("collapsed detail keeps metadata above a bordered eight-line body", () => {
+	const content = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n");
+	const tree = [
+		makeMessageNode("long-assistant", null, {
+			role: "assistant",
+			content: [{ type: "text", text: content }],
+			stopReason: "stop",
+		}),
+	];
+	const { lines } = renderWrappedTree({
+		tree,
+		leafId: "long-assistant",
+		initialSelectedId: "long-assistant",
+		filterMode: "all",
+		rows: 40,
+		width: 100,
+	});
+	const metadataIndex = lines.findIndex((line) => line.includes("DEPTH"));
+	const treeBorderIndex = lines.findLastIndex((line, index) => index < metadataIndex && line.includes("─"));
+
+	assert.equal(metadataIndex, treeBorderIndex + 1);
+	assert.ok(lines[metadataIndex + 1].includes("─"));
+	assert.equal(lines.length - metadataIndex, 11);
+	assert.ok(lines[metadataIndex + 2].includes("line 1"));
+	assert.ok(lines[metadataIndex + 9].includes("line 8"));
+	assert.equal(visibleWidth(lines[metadataIndex]), 100);
+	assert.ok(lines[metadataIndex].endsWith("… Ctrl+R full"));
+	assert.ok(lines.at(-1)?.includes("─"));
+});
+
+test("collapsed detail is completely hidden on short screens", () => {
+	const { lines } = renderWrappedTree({ rows: 16, width: 100 });
+
+	assert.ok(!lines.some((line) => line.includes("DEPTH")));
+	assert.ok(!lines.some((line) => line.includes("Ctrl+R full")));
+	assert.equal(lines.filter((line) => line.includes("selected branch message")).length, 1);
+});
+
+test("collapsed and expanded details share native body lines and metadata", () => {
+	class TrackingAssistantMessageComponent {
+		render() {
+			return ["native first", "", "native third"];
+		}
+	}
+	const tree = [
+		makeMessageNode("assistant", null, {
+			role: "assistant",
+			content: [{ type: "text", text: "ignored" }],
+			stopReason: "stop",
+		}),
+	];
+	const { mode, lines: collapsedLines } = renderWrappedTree({
+		tree,
+		leafId: "assistant",
+		initialSelectedId: "assistant",
+		filterMode: "all",
+		nativeComponents: createNativeComponents({
+			assistantMessageComponent: TrackingAssistantMessageComponent,
+		}),
+		rows: 40,
+		width: 100,
+	});
+	const collapsedBodyIndex = collapsedLines.findIndex((line) => line.includes("native first"));
+	const collapsedMetadataLine = findLine(collapsedLines, "DEPTH");
+	const expandHintIndex = collapsedMetadataLine.indexOf("… Ctrl+R full");
+	const collapsedMetadata = collapsedMetadataLine.slice(0, expandHintIndex).trimEnd();
+
+	assert.equal(collapsedLines[collapsedBodyIndex + 1], "".padEnd(100));
+	assert.ok(collapsedLines[collapsedBodyIndex + 2].includes("native third"));
+
+	mode.child.handleInput("\x12");
+	const expandedLines = mode.child.render(100);
+	const expandedBodyIndex = expandedLines.findIndex((line) => line.includes("native first"));
+	const expandedMetadataIndex = expandedLines.findIndex((line) => line.includes("DEPTH"));
+	const expandedMetadataLine = expandedLines[expandedMetadataIndex];
+	const navigationIndex = expandedLines.findIndex((line) => line.includes("↑↓ scroll"));
+	const navigationLine = expandedLines[navigationIndex];
+
+	assert.equal(expandedMetadataIndex + 2, expandedBodyIndex);
+	assert.equal(expandedLines[expandedBodyIndex + 1], "".padEnd(100));
+	assert.ok(expandedLines[expandedBodyIndex + 2].includes("native third"));
+	assert.equal(expandedMetadataLine.trimEnd(), collapsedMetadata);
+	assert.ok(!expandedMetadataLine.includes("Ctrl+R"));
+	assert.ok(expandedLines[expandedMetadataIndex + 1].includes("─"));
+	assert.ok(expandedLines[navigationIndex - 1].includes("─"));
+	assert.ok(navigationLine.includes("Esc/Ctrl+R collapse"));
+});
+
 test("sticky-left removes the final indentation level on narrow terminals", () => {
-	const { mode, lines: wideLines } = renderWrappedTree();
+	const { mode, lines: wideLines } = renderWrappedTree({ rows: 16 });
 	const narrowLines = mode.child.render(40);
 	const narrowCurrentLine = findLine(narrowLines, "selected branch message");
 	const wideCurrentLine = findLine(wideLines, "selected branch message");
@@ -423,11 +511,11 @@ test("sticky-left removes the final indentation level on narrow terminals", () =
 });
 
 test("selector chrome is measured before placing the sticky-left status", () => {
-	const { mode, selector } = renderWrappedTree();
+	const { mode, selector } = renderWrappedTree({ rows: 16 });
 	const wrappedHelpLines = simulateWrappedTreeHelp(selector);
 	const lines = mode.child.render(80);
 	const stickyStatusIndex = lines.findIndex((line) => line.includes("depth 3"));
-	const firstTreeRowIndex = lines.findIndex((line) => line.includes("branch message 2"));
+	const firstTreeRowIndex = lines.findIndex((line, index) => index > stickyStatusIndex && line.includes("• user:"));
 
 	for (const helpLine of wrappedHelpLines) {
 		assert.ok(lines.includes(helpLine));
@@ -443,7 +531,8 @@ test("expanded detail layout accounts for wrapped selector chrome", () => {
 	const lines = mode.child.render(80);
 
 	assert.equal(lines.length, mode.ui.terminal.rows);
-	assert.ok(lines.some((line) => line.includes("FULL USER MESSAGE")));
+	assert.ok(lines.some((line) => line.includes("DEPTH")));
+	assert.ok(lines.some((line) => line.includes("Esc/Ctrl+R collapse")));
 });
 
 test("tree status is folded into the detail header", () => {
@@ -454,7 +543,7 @@ test("tree status is folded into the detail header", () => {
 
 	assert.match(detailHeader ?? "", /\d+\/\d+ · \[no-tools\] · DEPTH \d+/);
 	assert.ok(!lines.some((line) => line.trim().startsWith("(") && line.includes("[no-tools]")));
-	assert.ok(lines[detailHeaderIndex - 1]?.includes("─"));
+	assert.ok(lines[detailHeaderIndex + 1]?.includes("─"));
 });
 
 test("current row gets an accent marker when it is visible but not selected", () => {
@@ -463,7 +552,7 @@ test("current row gets an accent marker when it is visible but not selected", ()
 	const detailHeader = findLine(lines, "DEPTH");
 
 	assert.ok(currentLine?.startsWith("◆ "));
-	assert.ok(currentLine?.includes("│     • user: selected branch message"));
+	assert.ok(currentLine?.includes("• user: selected branch message"));
 	assert.ok(lines.some((line) => line.includes("↑ CURRENT")));
 	assert.match(detailHeader ?? "", /DEPTH \d+ · ↑ CURRENT\s+│/);
 });
@@ -519,7 +608,7 @@ test("tool result detail pane prioritizes result lines over the tool command", (
 	assert.ok(lines.some((line) => line.includes("line 2")));
 });
 
-test("bash preview shows output without command/status chrome", () => {
+test("bash detail uses the same native rendering in both preview modes", () => {
 	const { lines, mode } = renderWrappedTree({
 		tree: createBashExecutionTree(),
 		leafId: "bash-detail",
@@ -529,19 +618,20 @@ test("bash preview shows output without command/status chrome", () => {
 
 	assert.ok(lines.some((line) => line.includes("line 1")));
 	assert.ok(lines.some((line) => line.includes("line 2")));
-	assert.ok(!lines.some((line) => line.includes("$ npm test")));
+	assert.ok(lines.some((line) => line.includes("$ npm test")));
 
 	mode.child.handleInput("\x12");
 	const expandedLines = mode.child.render(80);
 	assert.ok(expandedLines.some((line) => line.includes("$ npm test")));
 });
 
-test("assistant detail uses ModelRuntime context and removes blank lines", () => {
+test("assistant detail uses ModelRuntime context with native rendering", () => {
 	const { lines } = renderWrappedTree({
 		tree: createAssistantDetailTree(),
 		leafId: "assistant-detail",
 		initialSelectedId: "assistant-detail",
 		filterMode: "all",
+		width: 100,
 		modelRuntime: {
 			getModel(provider, modelId) {
 				if (provider === "openai" && modelId === "gpt-test") {
@@ -564,6 +654,7 @@ test("detail pane resolves model context through ModelRuntime", () => {
 		leafId: "assistant-detail",
 		initialSelectedId: "assistant-detail",
 		filterMode: "all",
+		width: 100,
 		modelRegistry: null,
 		modelRuntime: {
 			getModel(provider, modelId) {
@@ -584,6 +675,7 @@ test("detail pane falls back to legacy model registry", () => {
 		leafId: "assistant-detail",
 		initialSelectedId: "assistant-detail",
 		filterMode: "all",
+		width: 100,
 		modelRuntime: null,
 		modelRegistry: {
 			find(provider, modelId) {
@@ -626,18 +718,18 @@ test("custom entry string data renders as human text", () => {
 	assert.doesNotMatch(rendered, /\\n/);
 });
 
-test("detail pane shows an inline review hint when content is truncated", () => {
+test("detail metadata always shows the right-aligned review hint", () => {
 	const truncatedTree = [
 		makeMessageNode("long-assistant", null, {
 			role: "assistant",
-			content: [{ type: "text", text: "one\ntwo\nthree\nfour" }],
+			content: [{ type: "text", text: Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join("\n") }],
 			stopReason: "stop",
 		}),
 	];
 	const shortTree = [
 		makeMessageNode("short-assistant", null, {
 			role: "assistant",
-			content: [{ type: "text", text: "one\ntwo\nthree" }],
+			content: [{ type: "text", text: Array.from({ length: 8 }, (_, index) => `line ${index + 1}`).join("\n") }],
 			stopReason: "stop",
 		}),
 	];
@@ -656,7 +748,7 @@ test("detail pane shows an inline review hint when content is truncated", () => 
 	});
 
 	assert.ok(truncatedLines.some((line) => line.includes("Ctrl+R full")));
-	assert.ok(!shortLines.some((line) => line.includes("Ctrl+R full")));
+	assert.ok(shortLines.some((line) => line.includes("Ctrl+R full")));
 });
 
 test("ctrl+r toggles a full detail drawer", () => {
@@ -679,7 +771,8 @@ test("ctrl+r toggles a full detail drawer", () => {
 	assert.equal(mode.focus, mode.child);
 	assert.equal(mode.child.expandedDetail.expanded, true);
 	const expandedLines = mode.child.render(80);
-	assert.ok(expandedLines.some((line) => line.includes("FULL ASSISTANT MESSAGE")));
+	assert.ok(expandedLines.some((line) => line.includes("DEPTH")));
+	assert.ok(!expandedLines.some((line) => line.includes("FULL ASSISTANT MESSAGE")));
 	assert.ok(expandedLines.some((line) => line.includes("one")));
 	assert.ok(expandedLines.some((line) => line.includes("two")));
 	assert.ok(expandedLines.some((line) => line.includes("three")));
@@ -708,10 +801,12 @@ test("expanded detail footer matches resume ordering, color, and border placemen
 
 	mode.child.handleInput("\x12");
 	const expandedLines = mode.child.render(80);
+	const metadataIndex = expandedLines.findIndex((line) => line.includes("DEPTH"));
 	const hintIndex = expandedLines.findIndex((line) => line.includes("Esc/Ctrl+R collapse"));
 	const hintLine = expandedLines[hintIndex];
 
-	assert.ok(hintIndex > 0);
+	assert.ok(metadataIndex > 0);
+	assert.ok(expandedLines[metadataIndex + 1].includes("─"));
 	const dimPrefix = "\u001b[38;2;102;102;102m";
 	const colorReset = "\u001b[39m";
 	assert.ok(hintLine.startsWith(dimPrefix), JSON.stringify(hintLine));

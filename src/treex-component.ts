@@ -9,9 +9,10 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from
 
 import { renderTreeHelp } from "./tmux-tree-launch.js";
 
-const DETAIL_BODY_LINES = 3;
+const DETAIL_BODY_LINES = 8;
+const MIN_TREE_LINES_WITH_DETAIL = 5;
 const NARROW_TERMINAL_MAX_WIDTH = 50;
-const COMPACT_DETAIL_LINES = DETAIL_BODY_LINES + 2;
+const COMPACT_DETAIL_LINES = DETAIL_BODY_LINES + 3;
 const EXPANDED_DETAIL_CHROME_LINES = 4;
 const EXPANDED_DETAIL_MIN_LINES = EXPANDED_DETAIL_CHROME_LINES + DETAIL_BODY_LINES;
 const EXPANDED_DETAIL_PREFERRED_TREE_ROWS = 12;
@@ -506,22 +507,31 @@ function describeEntry(treeList, node) {
 }
 
 function calculateTreeDetailLayout(availableRows, detailExpanded, selectorChromeLines) {
+	const availableContentRows = Math.max(1, availableRows - selectorChromeLines);
 	if (detailExpanded) {
-		const availableContentRows = Math.max(1, availableRows - selectorChromeLines);
 		const treeRows = Math.min(
 			EXPANDED_DETAIL_PREFERRED_TREE_ROWS,
 			Math.max(1, availableContentRows - EXPANDED_DETAIL_MIN_LINES),
 		);
 		const detailBodyRows = Math.max(1, availableContentRows - treeRows - EXPANDED_DETAIL_CHROME_LINES);
 
-		return { treeRows, detailBodyRows };
+		return { treeRows, detailBodyRows, detailVisible: true };
 	}
 
-	const preferredTreeRows = Math.max(5, Math.floor(availableRows / 2) - COMPACT_DETAIL_LINES);
-	const availableTreeRows = Math.max(1, availableRows - selectorChromeLines - COMPACT_DETAIL_LINES);
+	if (availableContentRows < MIN_TREE_LINES_WITH_DETAIL + COMPACT_DETAIL_LINES) {
+		return {
+			treeRows: availableContentRows,
+			detailBodyRows: 0,
+			detailVisible: false,
+		};
+	}
+
+	const preferredTreeRows = Math.max(MIN_TREE_LINES_WITH_DETAIL, Math.floor(availableRows / 2) - COMPACT_DETAIL_LINES);
+	const availableTreeRows = Math.max(1, availableContentRows - COMPACT_DETAIL_LINES);
 	return {
 		treeRows: Math.min(preferredTreeRows, availableTreeRows),
 		detailBodyRows: DETAIL_BODY_LINES,
+		detailVisible: true,
 	};
 }
 
@@ -672,7 +682,11 @@ function isToolResultEntry(entry) {
 }
 
 function compactDetailLines(lines) {
-	return lines.filter(hasVisibleText);
+	let start = 0;
+	while (start < lines.length && !hasVisibleText(lines[start])) start++;
+	let end = lines.length;
+	while (end > start && !hasVisibleText(lines[end - 1])) end--;
+	return lines.slice(start, end);
 }
 
 function removeSharedPrefix(baseLines, lines) {
@@ -687,40 +701,21 @@ function removeSharedPrefix(baseLines, lines) {
 	return lines.slice(index);
 }
 
-function appendTruncatedDetailHint(line, width, theme) {
-	const hintWidth = visibleWidth(TRUNCATED_DETAIL_HINT);
-	const hint = theme.fg("muted", TRUNCATED_DETAIL_HINT);
+function appendRightHint(line, width, theme, hintText, hintColumnText = hintText) {
+	const hint = theme.fg("dim", hintText);
+	const hintWidth = visibleWidth(hint);
+	if (width <= hintWidth) return fitLine(hint, width);
 
-	if (width <= hintWidth) {
-		return truncateToWidth(hint, width);
-	}
-
-	return truncateToWidth(line, Math.max(1, width - hintWidth), "") + hint;
+	const hintColumnWidth = Math.max(hintWidth, visibleWidth(hintColumnText));
+	const left = truncateToWidth(line, Math.max(0, width - hintColumnWidth - 1), "");
+	const padding = Math.max(0, width - visibleWidth(left) - hintWidth);
+	return `${left}${" ".repeat(padding)}${hint}`;
 }
 
-function getDetailBodyLines(lines, width, theme) {
+function getDetailBodyLines(lines) {
 	const bodyLines = lines.slice(0, DETAIL_BODY_LINES);
-
-	if (lines.length > DETAIL_BODY_LINES) {
-		const lastLineIndex = bodyLines.length - 1;
-		bodyLines[lastLineIndex] = appendTruncatedDetailHint(bodyLines[lastLineIndex], width, theme);
-	}
-
-	while (bodyLines.length < DETAIL_BODY_LINES) {
-		bodyLines.push("");
-	}
-
+	while (bodyLines.length < DETAIL_BODY_LINES) bodyLines.push("");
 	return bodyLines;
-}
-
-function formatFullDetailTitle(info) {
-	if (info.kind === "USER" || info.kind === "ASSISTANT") {
-		return `FULL ${info.kind} MESSAGE`;
-	}
-
-	const titleParts = [`FULL ${info.kind}`];
-	if (info.toolName) titleParts.push(String(info.toolName).toUpperCase());
-	return titleParts.join(" · ");
 }
 
 function renderCompactComponentLines(component, width) {
@@ -796,16 +791,17 @@ class ExpandedDetailPane {
 	}
 
 	renderEmpty(theme, width) {
+		const footerParts = ["0-0/0", "↑↓ scroll", "←/→ page", "Home/End", EXPANDED_DETAIL_COLLAPSE_HINT];
 		return [
 			fitLine(theme.fg("muted", "NO SELECTION"), width),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...Array.from({ length: this.bodyHeight }, () => fitLine("", width)),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
-			fitLine(theme.fg("dim", EXPANDED_DETAIL_COLLAPSE_HINT), width),
+			fitLine(theme.fg("dim", footerParts.join(METADATA_SEPARATOR)), width),
 		];
 	}
 
-	render(theme, width, title, contentLines) {
+	render(theme, width, contentLines, metadata) {
 		const lines = contentLines.length ? contentLines : [theme.fg("muted", "(no text)")];
 		const maxOffset = Math.max(0, lines.length - this.bodyHeight);
 		this.scrollOffset = Math.min(Math.max(0, this.scrollOffset), maxOffset);
@@ -826,7 +822,7 @@ class ExpandedDetailPane {
 		];
 
 		return [
-			fitLine(theme.bold(title), width),
+			appendRightHint(metadata, width, theme, "", EXPANDED_DETAIL_COLLAPSE_HINT),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...visibleLines.map((line) => fitLine(line, width)),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
@@ -892,14 +888,6 @@ class DetailContentRenderer {
 		return component.render(width);
 	}
 
-	renderBashPreviewLines(entry, width) {
-		const message = entry.message;
-		const output = normalizeDetail(message.output);
-		const text = output || normalizeDetail(message.command) || "(no output)";
-		const theme = getTheme();
-		return compactDetailLines(wrapTextWithAnsi(theme.fg("muted", text), width));
-	}
-
 	renderExpandableEntryLines(Component, message, width) {
 		const component = new Component(message, this.mode.getMarkdownThemeWithSettings());
 		component.setExpanded(true);
@@ -933,7 +921,7 @@ class DetailContentRenderer {
 		return resultLines.length > 0 ? resultLines : fullLines;
 	}
 
-	renderPreview(entry, info, width) {
+	render(entry, info, width) {
 		if (isToolResultEntry(entry)) {
 			return this.renderToolResultPreviewLines(entry, width);
 		}
@@ -945,42 +933,27 @@ class DetailContentRenderer {
 				case "assistant":
 					return renderCompactComponentLines(this.createAssistantMessageComponent(entry), width);
 				case "bashExecution":
-					return this.renderBashPreviewLines(entry, width);
-			}
-		}
-
-		return renderCompactPlainTextLines(info.full, width);
-	}
-
-	renderExpanded(entry, info, width) {
-		if (isToolResultEntry(entry)) {
-			return this.renderToolLines(entry, width, entry.message);
-		}
-
-		if (entry.type === "message") {
-			switch (entry.message.role) {
-				case "user":
-					return this.createUserMessageComponent(entry).render(width);
-				case "assistant":
-					return this.createAssistantMessageComponent(entry).render(width);
-				case "bashExecution":
-					return this.renderBashExecutionLines(entry, width);
+					return compactDetailLines(this.renderBashExecutionLines(entry, width));
 			}
 		}
 
 		if (entry.type === "compaction") {
-			return this.renderExpandableEntryLines(this.components.compactionSummaryMessageComponent, entry, width);
+			return compactDetailLines(
+				this.renderExpandableEntryLines(this.components.compactionSummaryMessageComponent, entry, width),
+			);
 		}
 
 		if (entry.type === "branch_summary") {
-			return this.renderExpandableEntryLines(this.components.branchSummaryMessageComponent, entry, width);
+			return compactDetailLines(
+				this.renderExpandableEntryLines(this.components.branchSummaryMessageComponent, entry, width),
+			);
 		}
 
 		if (entry.type === "custom_message") {
-			return this.renderCustomMessageLines(entry, width);
+			return compactDetailLines(this.renderCustomMessageLines(entry, width));
 		}
 
-		return renderPlainTextLines(info.full, width);
+		return renderCompactPlainTextLines(info.full, width);
 	}
 }
 
@@ -998,6 +971,7 @@ class TreeXWrapper {
 		this.treeLaunchError = undefined;
 		this.detailContent = new DetailContentRenderer(mode, this.treeList, nativeComponents);
 		this.expandedDetail = new ExpandedDetailPane();
+		this.detailVisible = true;
 		this.hiddenBottomEntries = [];
 		this.hiddenBottomComponents = [];
 		patchTreeListRender(this.treeList);
@@ -1039,12 +1013,13 @@ class TreeXWrapper {
 		let rendered = this.renderSelector(width);
 		const selectorChromeLines = rendered.lines.length - rendered.treeLineCount;
 		const availableRows = availablePickerRows(this.mode, width) ?? this.tui.terminal.rows;
-		const { treeRows, detailBodyRows } = calculateTreeDetailLayout(
+		const { treeRows, detailBodyRows, detailVisible } = calculateTreeDetailLayout(
 			availableRows,
 			this.expandedDetail.expanded,
 			selectorChromeLines,
 		);
 
+		this.detailVisible = detailVisible;
 		this.expandedDetail.bodyHeight = detailBodyRows;
 		if (this.treeList.maxVisibleLines !== treeRows) {
 			this.treeList.maxVisibleLines = treeRows;
@@ -1195,6 +1170,7 @@ class TreeXWrapper {
 		if (!selected) {
 			return [
 				fitLine(theme.fg("muted", "NO SELECTION"), width),
+				fitLine(theme.fg("accent", "─".repeat(width)), width),
 				...Array.from({ length: DETAIL_BODY_LINES }, () => fitLine("", width)),
 				fitLine(theme.fg("accent", "─".repeat(width)), width),
 			];
@@ -1202,10 +1178,14 @@ class TreeXWrapper {
 
 		const entry = selected.node.entry;
 		const info = describeEntry(this.treeList, selected.node);
-		const bodyLines = getDetailBodyLines(this.detailContent.renderPreview(entry, info, width), width, theme);
+		const contentLines = this.detailContent.render(entry, info, width);
+		const bodyLines = getDetailBodyLines(contentLines);
+		const metadata = this.getDetailMetadata(theme, selected, info);
+		const metadataLine = appendRightHint(metadata, width, theme, TRUNCATED_DETAIL_HINT, EXPANDED_DETAIL_COLLAPSE_HINT);
 
 		return [
-			fitLine(this.getDetailMetadata(theme, selected, info), width),
+			metadataLine,
+			fitLine(theme.fg("accent", "─".repeat(width)), width),
 			...bodyLines.map((line) => fitLine(line, width)),
 			fitLine(theme.fg("accent", "─".repeat(width)), width),
 		];
@@ -1223,8 +1203,8 @@ class TreeXWrapper {
 		return this.expandedDetail.render(
 			theme,
 			width,
-			formatFullDetailTitle(info),
-			this.detailContent.renderExpanded(entry, info, width),
+			this.detailContent.render(entry, info, width),
+			this.getDetailMetadata(theme, selected, info),
 		);
 	}
 
@@ -1244,7 +1224,9 @@ class TreeXWrapper {
 
 		const detailLines = this.expandedDetail.expanded
 			? this.renderExpandedDetailPane(theme, renderWidth)
-			: this.renderDetailPane(theme, renderWidth);
+			: this.detailVisible
+				? this.renderDetailPane(theme, renderWidth)
+				: [];
 
 		return [...lines, ...detailLines];
 	}
