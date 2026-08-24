@@ -1,18 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InteractiveMode } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
-
 import {
 	AssistantMessageComponent,
 	BashExecutionComponent,
 	BranchSummaryMessageComponent,
 	CompactionSummaryMessageComponent,
 	CustomMessageComponent,
+	InteractiveMode,
 	ToolExecutionComponent,
+	TreeSelectorComponent,
 	UserMessageComponent,
-} from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/index.js";
-import { TreeSelectorComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tree-selector.js";
+} from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { installTreeXNativePatches } from "../src/treex-component.ts";
 import treexExtension from "../treex.ts";
 
