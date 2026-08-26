@@ -666,31 +666,27 @@ test("detail pane can render user messages with native styling", () => {
 	assert.ok(lines.some((line) => line.includes("say hello")));
 });
 
-test("treex entry patches the host pi InteractiveMode", async () => {
+test("treex entry loads components from the host entry point", async () => {
 	const tempDir = await mkdtemp(join(tmpdir(), "pi-treex-host-"));
 	const distDir = join(tempDir, "dist");
 	const binDir = join(tempDir, "bin");
 	const realCliPath = join(distDir, "cli.js");
 	const symlinkCliPath = join(binDir, "pi");
 	const indexPath = join(distDir, "index.js");
-	const componentsDir = join(distDir, "modes", "interactive", "components");
-	const componentsIndexPath = join(componentsDir, "index.js");
 
 	await mkdir(distDir, { recursive: true });
 	await mkdir(binDir, { recursive: true });
-	await mkdir(componentsDir, { recursive: true });
 	await writeFile(join(tempDir, "package.json"), '{"type":"module"}\n');
 	await writeFile(realCliPath, "export {};\n");
 	await symlink("../dist/cli.js", symlinkCliPath);
 	await writeFile(
 		indexPath,
-		["export class InteractiveMode {", "  showSelector(create) {", "    return create(() => {});", "  }", "}"].join(
-			"\n",
-		),
-	);
-	await writeFile(
-		componentsIndexPath,
 		[
+			"export class InteractiveMode {",
+			"  showSelector(create) {",
+			"    return create(() => {});",
+			"  }",
+			"}",
 			"export class AssistantMessageComponent {}",
 			"export class BashExecutionComponent {}",
 			"export class BranchSummaryMessageComponent {}",

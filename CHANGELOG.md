@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.3 - 2026-08-26
+
+### Fixed
+
+- Fixed extension startup on Pi 0.84.3 after its executable moved into `dist/bundle`; TreeX now loads native components from the host bundle's public entry point.
+
 ## 0.4.2 - 2026-07-28
 
 ### Changed
