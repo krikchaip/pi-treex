@@ -1108,7 +1108,7 @@ class TreeXWrapper {
 				? this.treeLauncher.launch(this.mode, selected.node.entry, treeLaunchTarget)
 				: { ok: false, error: "Select a tree entry first" };
 			if (result.ok) {
-				this.closeSelector();
+				this.tui.requestRender();
 				return;
 			}
 			this.treeLaunchError = result.error;

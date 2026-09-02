@@ -1017,33 +1017,41 @@ test("configured tree hotkey toggles the picker closed", () => {
 	assert.deepEqual(matches, [["configured-tree-key", "app.session.tree"]]);
 });
 
-test("tmux launch hints render and a successful launch closes the picker", () => {
-    let launched;
-    const treeLauncher = {
-        available: true,
-        targetForInput: (keyData) => (keyData === "\x1b[115;7u" ? "down" : undefined),
-        launch: (mode, entry, target) => {
-            launched = { mode, entry, target };
-            return { ok: true };
-        },
-    };
-    const tree = [makeNode("user-root", null, "initial prompt")];
-    const { mode, lines } = renderWrappedTree({
-        tree,
-        leafId: "user-root",
-        initialSelectedId: "user-root",
-        nativeComponents: { ...createNativeComponents(), treeLauncher },
-    });
+test("tmux launch hints render and successful launches keep the picker open", () => {
+	const launches = [];
+	const targets = new Map([
+		["\x1b[115;7u", "down"],
+		["\x1b[118;7u", "right"],
+		["\x1b[119;7u", "window"],
+	]);
+	const treeLauncher = {
+		available: true,
+		targetForInput: (keyData) => targets.get(keyData),
+		launch: (_mode, entry, target) => {
+			launches.push({ entryId: entry.id, target });
+			return { ok: true };
+		},
+	};
+	const tree = [makeNode("user-root", null, "initial prompt")];
+	const { mode, lines } = renderWrappedTree({
+		tree,
+		leafId: "user-root",
+		initialSelectedId: "user-root",
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+	});
 
 	assert.ok(lines.some((line) => line.includes("ctrl+alt+s sp")));
 	assert.ok(lines.some((line) => line.includes("ctrl+alt+v vsp")));
 	assert.ok(lines.some((line) => line.includes("ctrl+alt+w win")));
 	const wrapper = mode.child;
 	wrapper.expandedDetail.toggle();
-	wrapper.handleInput("\x1b[115;7u");
-	assert.equal(launched.entry.id, "user-root");
-	assert.equal(launched.target, "down");
-	assert.equal(mode.child, mode.editor);
+	for (const keyData of targets.keys()) wrapper.handleInput(keyData);
+	assert.deepEqual(launches, [
+		{ entryId: "user-root", target: "down" },
+		{ entryId: "user-root", target: "right" },
+		{ entryId: "user-root", target: "window" },
+	]);
+	assert.equal(mode.child, wrapper);
 });
 
 test("builtin and tmux key hints share one semantic line and color", () => {
