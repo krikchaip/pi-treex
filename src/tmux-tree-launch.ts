@@ -237,6 +237,17 @@ function resultError(result) {
 	return `tmux exited with code ${String(result.status)}`;
 }
 
+function currentTmuxWindowTarget(runTmux, env) {
+	const paneId = env.TMUX_PANE;
+	if (!paneId) return { error: "Current tmux pane is unavailable" };
+
+	const result = runTmux(["display-message", "-p", "-t", paneId, "#{window_id}"]);
+	const windowId = result.stdout?.trim();
+	if (result.status === 0 && windowId) return { windowId };
+
+	return { error: `Cannot identify current tmux window: ${resultError(result)}` };
+}
+
 function rollbackChildSession(path) {
 	try {
 		unlinkSync(path);
@@ -267,6 +278,9 @@ export function createTmuxTreeLauncher(SessionManager, options = {}) {
 			let bootstrapPath = undefined;
 
 			try {
+				const windowTarget = target === "window" ? currentTmuxWindowTarget(runTmux, env) : undefined;
+				if (windowTarget?.error) throw new Error(windowTarget.error);
+
 				childPath = createChildSession(SessionManager, sourceFile, sessionDir, cwd, targetId);
 				bootstrapPath = createEditorBootstrap(editorText);
 				const extensionArgs = options.extensionPath ? ["-e", options.extensionPath] : [];
@@ -275,6 +289,7 @@ export function createTmuxTreeLauncher(SessionManager, options = {}) {
 				const command = piEntry ? [process.execPath, piEntry, ...piArgs] : ["pi", ...piArgs];
 				const result = runTmux([
 					target === "window" ? "new-window" : "split-window",
+					...(windowTarget ? ["-a", "-t", windowTarget.windowId] : []),
 					...(target === "right" ? ["-h"] : target === "down" ? ["-v"] : []),
 					"-c",
 					cwd,

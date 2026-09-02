@@ -138,10 +138,13 @@ test("root user launch creates an empty child with parentSession", async (t) => 
 	await writeFile(sourceFile, "{}\n");
 	const observations = {};
 	const FakeSessionManager = createFakeSessionManager(childPath, observations);
+	const tmuxCommands = [];
 	let tmuxArgs;
 	const launcher = createTmuxTreeLauncher(FakeSessionManager, {
 		env: { TMUX: "tmux", TMUX_PANE: "%1" },
 		runTmux: (args) => {
+			tmuxCommands.push(args);
+			if (args[0] === "display-message") return { status: 0, stdout: "@42\n", stderr: "" };
 			tmuxArgs = args;
 			return { status: 0, stderr: "" };
 		},
@@ -161,7 +164,9 @@ test("root user launch creates an empty child with parentSession", async (t) => 
 	assert.deepEqual(observations.create, { cwd: "/work/tree-project", sessionDir: directory });
 	assert.deepEqual(observations.newSession, { parentSession: sourceFile });
 	assert.equal(observations.targetId, undefined);
+	assert.deepEqual(tmuxCommands[0], ["display-message", "-p", "-t", "%1", "#{window_id}"]);
 	assert.equal(tmuxArgs[0], "new-window");
+	assert.deepEqual(tmuxArgs.slice(1, 4), ["-a", "-t", "@42"]);
 	const persisted = (await readFile(childPath, "utf8"))
 		.trim()
 		.split("\n")
