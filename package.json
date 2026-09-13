@@ -24,9 +24,10 @@
 		"image": "https://raw.githubusercontent.com/travisp/pi-treex/main/screenshots/after.png"
 	},
 	"scripts": {
-		"check": "biome check . && npm test",
+		"check": "biome check . && npm test && npm run test:e2e",
 		"format": "biome format --write .",
-		"test": "tsx --test"
+		"test": "tsx --test test/*.test.js",
+		"test:e2e": "node --test test/real-tui.e2e.js"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",

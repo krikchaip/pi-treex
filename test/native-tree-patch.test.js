@@ -494,7 +494,7 @@ test("collapsed and expanded details share native body lines and metadata", () =
 });
 
 test("sticky-left removes the final indentation level on narrow terminals", () => {
-	const { mode, lines: wideLines } = renderWrappedTree({ rows: 16 });
+	const { mode, lines: wideLines } = renderWrappedTree({ rows: 14 });
 	const narrowLines = mode.child.render(40);
 	const narrowCurrentLine = findLine(narrowLines, "selected branch message");
 	const wideCurrentLine = findLine(wideLines, "selected branch message");
@@ -1105,11 +1105,11 @@ test("tmux launch hints wrap within a narrow picker", () => {
 	const lines = mode.child.render(44);
 	const rendered = lines.join("\n");
 
-    assert.ok(lines.every((line) => visibleWidth(line) <= 44));
-    assert.ok(lines.length <= mode.ui.terminal.rows);
-    assert.ok(rendered.includes("ctrl+alt+s sp"));
-    assert.ok(rendered.includes("ctrl+alt+v vsp"));
-    assert.ok(rendered.includes("ctrl+alt+w win"));
+	assert.ok(lines.every((line) => visibleWidth(line) <= 44));
+	assert.ok(lines.length <= mode.ui.terminal.rows);
+	assert.ok(rendered.includes("ctrl+alt+s sp"));
+	assert.ok(rendered.includes("ctrl+alt+v vsp"));
+	assert.ok(rendered.includes("ctrl+alt+w win"));
 });
 
 test("tmux launch hints stay visible on a short terminal", () => {
@@ -1131,32 +1131,32 @@ test("tmux launch hints stay visible on a short terminal", () => {
 });
 
 test("tmux launch failure stays in the picker with an inline error", () => {
-    const treeLauncher = {
-        available: true,
-        targetForInput: (keyData) => (keyData === "\x1b[118;7u" ? "right" : undefined),
-        launch: () => ({ ok: false, error: "Tree launch failed: no pane available" }),
-    };
-    const { mode } = renderWrappedTree({
-        nativeComponents: { ...createNativeComponents(), treeLauncher },
-    });
-    const wrapper = mode.child;
+	const treeLauncher = {
+		available: true,
+		targetForInput: (keyData) => (keyData === "\x1b[118;7u" ? "right" : undefined),
+		launch: () => ({ ok: false, error: "Tree launch failed: no pane available" }),
+	};
+	const { mode } = renderWrappedTree({
+		nativeComponents: { ...createNativeComponents(), treeLauncher },
+	});
+	const wrapper = mode.child;
 
-    wrapper.handleInput("\x1b[118;7u");
-    assert.equal(mode.child, wrapper);
-    assert.ok(wrapper.render(80).some((line) => line.includes("Tree launch failed: no pane available")));
+	wrapper.handleInput("\x1b[118;7u");
+	assert.equal(mode.child, wrapper);
+	assert.ok(wrapper.render(80).some((line) => line.includes("Tree launch failed: no pane available")));
 
-    wrapper.handleInput("x");
-    assert.ok(!wrapper.render(80).some((line) => line.includes("Tree launch failed: no pane available")));
+	wrapper.handleInput("x");
+	assert.ok(!wrapper.render(80).some((line) => line.includes("Tree launch failed: no pane available")));
 });
 
 test("tmux launch hints stay hidden outside tmux", () => {
-    const { lines } = renderWrappedTree({
-        nativeComponents: {
-            ...createNativeComponents(),
-            treeLauncher: { available: false, targetForInput: () => undefined },
-        },
-    });
-    assert.ok(!lines.some((line) => line.includes("ctrl+alt+s")));
+	const { lines } = renderWrappedTree({
+		nativeComponents: {
+			...createNativeComponents(),
+			treeLauncher: { available: false, targetForInput: () => undefined },
+		},
+	});
+	assert.ok(!lines.some((line) => line.includes("ctrl+alt+s")));
 });
 
 test("treex patches the public runtime with a Bun virtual executable path", (t) => {
